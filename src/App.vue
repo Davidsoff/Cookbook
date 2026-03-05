@@ -7,7 +7,6 @@ import TabsBar from "./components/TabsBar.vue";
 import IngredientsPanel from "./components/IngredientsPanel.vue";
 import StepsPanel from "./components/StepsPanel.vue";
 import ToolsPanel from "./components/ToolsPanel.vue";
-import ShoppingPanel from "./components/ShoppingPanel.vue";
 import MealPlanPanel from "./components/MealPlanPanel.vue";
 import PlanShoppingPanel from "./components/PlanShoppingPanel.vue";
 import { useCookbookStore } from "./stores/useCookbookStore";
@@ -96,7 +95,6 @@ onUnmounted(() => {
           />
 
           <ToolsPanel v-else-if="store.tab === 'tools'" :recipe="store.activeRecipe" />
-          <ShoppingPanel v-else-if="store.tab === 'shopping'" :recipe="store.activeRecipe" :shopping-config="store.shoppingConfig" />
           <MealPlanPanel
             v-else-if="store.tab === 'meal-plan'"
             :week="store.mealPlanWeek"
