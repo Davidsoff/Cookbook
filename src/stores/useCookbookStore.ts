@@ -7,6 +7,13 @@ import type { ShoppingConfig } from "../types/shopping";
 import type { MealPlanWeek, PlannedRecipeEntry } from "../types/meal-plan";
 import { createRollingWeek, generateRandomWeekPlan, rebaseMealPlanWeek } from "../lib/mealPlan";
 import { buildShoppingListFromPlan } from "../lib/shopping";
+import type { SourceSettings } from "../types/source-settings";
+import {
+  DEFAULT_SOURCE_SETTINGS,
+  loadSourceSettingsFromStorage,
+  normalizeSourceSettings,
+  saveSourceSettingsToStorage,
+} from "../lib/sourceSettings";
 
 const MEAL_PLAN_STORAGE_KEY = "cookbook.mealPlan.v1";
 
@@ -35,6 +42,7 @@ export function useCookbookStore() {
   const shoppingConfig = ref<ShoppingConfig>({ aisleByIngredient: {}, pantryByIngredient: {} });
   const expandedFolders = ref<Set<string>>(new Set());
   const mealPlanWeek = ref<MealPlanWeek>(createRollingWeek(new Date()));
+  const sourceSettings = ref<SourceSettings>(DEFAULT_SOURCE_SETTINGS);
 
   const activeRecipeIndex = computed(() => recipes.value.findIndex((recipe) => recipe.path === activeRecipePath.value));
   const activeRecipe = computed(() => recipes.value[activeRecipeIndex.value] || null);
@@ -180,6 +188,19 @@ export function useCookbookStore() {
     saveMealPlanToStorage();
   }
 
+  function setSourceSettings(next: Partial<SourceSettings>) {
+    const merged = normalizeSourceSettings({ ...sourceSettings.value, ...next });
+    sourceSettings.value = merged;
+    unitSystem.value = merged.defaultUnitSystem;
+    saveSourceSettingsToStorage(merged);
+  }
+
+  function resetSourceSettings() {
+    sourceSettings.value = normalizeSourceSettings(DEFAULT_SOURCE_SETTINGS);
+    unitSystem.value = sourceSettings.value.defaultUnitSystem;
+    saveSourceSettingsToStorage(sourceSettings.value);
+  }
+
   function selectRecipe(path: string) {
     if (path === activeRecipePath.value) return;
     activeRecipePath.value = path;
@@ -220,8 +241,15 @@ export function useCookbookStore() {
 
   function setUnitSystem(nextSystem: UnitSystem) {
     unitSystem.value = nextSystem;
+    sourceSettings.value = normalizeSourceSettings({
+      ...sourceSettings.value,
+      defaultUnitSystem: nextSystem,
+    });
+    saveSourceSettingsToStorage(sourceSettings.value);
   }
 
+  sourceSettings.value = loadSourceSettingsFromStorage();
+  unitSystem.value = sourceSettings.value.defaultUnitSystem;
   loadMealPlanFromStorage();
 
   return {
@@ -235,6 +263,7 @@ export function useCookbookStore() {
     scaleFactor,
     unitSystem,
     shoppingConfig,
+    sourceSettings,
     expandedFolders,
     treeData,
     activeTimers,
@@ -252,6 +281,8 @@ export function useCookbookStore() {
     clearMealPlanWeek,
     loadMealPlanFromStorage,
     saveMealPlanToStorage,
+    setSourceSettings,
+    resetSourceSettings,
     selectRecipe,
     toggleFolder,
     setTab,

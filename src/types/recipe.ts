@@ -1,5 +1,5 @@
 export type UnitSystem = "metric" | "us";
-export type Tab = "ingredients" | "steps" | "tools" | "meal-plan" | "plan-shopping";
+export type Tab = "ingredients" | "steps" | "tools" | "meal-plan" | "plan-shopping" | "settings";
 
 export interface Ingredient {
   name: string;

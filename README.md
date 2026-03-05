@@ -54,6 +54,14 @@ Yes—this app can be built in GitHub Actions and hosted on GitHub Pages.
 
 The workflow uses `actions/configure-pages` and passes its `base_path` to Vite via `VITE_BASE_PATH`, so assets resolve correctly for both project sites and custom-domain/user sites.
 
+## Mutation testing (StrykerJS)
+
+```bash
+npm run test:mutation
+```
+
+Mutation thresholds are enforced at `100%` (`high`, `low`, and `break`) in [`stryker.conf.json`](/Users/david/projects/cookbook/stryker.conf.json).
+
 ## Recipes
 
 Put `.cook` files under `recipes/`, including nested folders, for example:

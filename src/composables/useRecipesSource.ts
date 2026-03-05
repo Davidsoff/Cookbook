@@ -3,12 +3,22 @@ import type { Recipe } from "../types/recipe";
 import { adaptRawRecipeFile, adaptRawRecipeFiles } from "../lib/recipeAdapter";
 import { parseAisleConfig, parsePantryConfig } from "../lib/shopping";
 import type { ShoppingConfig } from "../types/shopping";
+import type { SourceSettings } from "../types/source-settings";
+import { DEFAULT_SOURCE_SETTINGS, normalizeSourceSettings } from "../lib/sourceSettings";
 
 const DEFAULT_RECIPES_PATH = "recipes/";
 const POLL_INTERVAL_MS = 3000;
 
 function looksLikeSpaIndex(html: string): boolean {
-  return html.includes("<div id=\"app\"></div>") && html.includes("/src/main.ts");
+  return html.includes('<div id="app"></div>') && html.includes("/src/main.ts");
+}
+
+function ensureTrailingSlash(path: string): string {
+  return path.endsWith("/") ? path : `${path}/`;
+}
+
+function normalizeRelativePath(path: string): string {
+  return (path || "").replace(/^\/+/, "").trim();
 }
 
 function extractLinksFromDirectoryListing(html: string): string[] {
@@ -34,9 +44,10 @@ function buildShoppingConfigFingerprint(config: ShoppingConfig): string {
   return JSON.stringify(config);
 }
 
-async function fetchRecipesFromHttpDirectory(basePath = DEFAULT_RECIPES_PATH): Promise<Recipe[]> {
+async function fetchRecipesFromHttpDirectory(basePath: string): Promise<Recipe[]> {
+  const normalizedBase = ensureTrailingSlash(normalizeRelativePath(basePath || DEFAULT_RECIPES_PATH) || DEFAULT_RECIPES_PATH);
   const recipes: Recipe[] = [];
-  const queue = [basePath.replace(/\/?$/, "/")];
+  const queue = [normalizedBase];
   const seen = new Set<string>();
 
   while (queue.length > 0) {
@@ -72,8 +83,8 @@ async function fetchRecipesFromHttpDirectory(basePath = DEFAULT_RECIPES_PATH): P
 
       if (href.endsWith("/")) {
         const nested = new URL(href, new URL(dirPath, window.location.href));
-        const nestedPath = nested.pathname.replace(/^\//, "");
-        if (!nestedPath.startsWith(DEFAULT_RECIPES_PATH)) continue;
+        const nestedPath = normalizeRelativePath(nested.pathname);
+        if (!nestedPath.startsWith(normalizedBase)) continue;
         queue.push(nestedPath);
         continue;
       }
@@ -81,7 +92,7 @@ async function fetchRecipesFromHttpDirectory(basePath = DEFAULT_RECIPES_PATH): P
       if (!href.toLowerCase().endsWith(".cook")) continue;
 
       const fileUrl = new URL(href, new URL(dirPath, window.location.href));
-      const path = fileUrl.pathname.replace(/^\//, "");
+      const path = normalizeRelativePath(fileUrl.pathname);
 
       let fileRes: Response;
       try {
@@ -97,6 +108,88 @@ async function fetchRecipesFromHttpDirectory(basePath = DEFAULT_RECIPES_PATH): P
   }
 
   return recipes;
+}
+
+function encodePath(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
+function githubRawUrl(settings: SourceSettings, path: string): string {
+  const owner = encodeURIComponent(settings.githubOwner);
+  const repo = encodeURIComponent(settings.githubRepo);
+  const ref = encodeURIComponent(settings.githubRef);
+  const encodedPath = encodePath(normalizeRelativePath(path));
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${encodedPath}`;
+}
+
+interface GithubTreeItem {
+  path: string;
+  type: string;
+}
+
+interface GithubTreeResponse {
+  tree?: GithubTreeItem[];
+}
+
+async function fetchGithubTree(settings: SourceSettings): Promise<GithubTreeItem[]> {
+  const owner = encodeURIComponent(settings.githubOwner);
+  const repo = encodeURIComponent(settings.githubRepo);
+  const ref = encodeURIComponent(settings.githubRef);
+  const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`;
+
+  try {
+    const res = await fetch(treeUrl, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+      },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as GithubTreeResponse;
+    if (!Array.isArray(data.tree)) return [];
+    return data.tree.filter((item) => item && typeof item.path === "string" && typeof item.type === "string");
+  } catch {
+    return [];
+  }
+}
+
+async function fetchGithubText(settings: SourceSettings, path: string): Promise<string> {
+  if (!normalizeRelativePath(path)) return "";
+  try {
+    const res = await fetch(githubRawUrl(settings, path), { cache: "no-store" });
+    if (!res.ok) return "";
+    return await res.text();
+  } catch {
+    return "";
+  }
+}
+
+async function fetchRecipesFromGithub(settings: SourceSettings): Promise<Recipe[]> {
+  if (!settings.githubOwner || !settings.githubRepo) return [];
+
+  const tree = await fetchGithubTree(settings);
+  if (tree.length === 0) return [];
+
+  const root = ensureTrailingSlash(normalizeRelativePath(settings.recipesPath || DEFAULT_RECIPES_PATH) || DEFAULT_RECIPES_PATH);
+  const paths = tree
+    .filter((item) => item.type === "blob")
+    .map((item) => normalizeRelativePath(item.path))
+    .filter((path) => path.startsWith(root) && path.toLowerCase().endsWith(".cook"))
+    .sort((a, b) => a.localeCompare(b));
+
+  const recipes = await Promise.all(
+    paths.map(async (path) => {
+      const content = await fetchGithubText(settings, path);
+      if (!content) return null;
+      return adaptRawRecipeFile({ path, content });
+    }),
+  );
+
+  return recipes.filter((item): item is Recipe => item != null);
 }
 
 async function loadRecipesFromViteGlob(): Promise<Recipe[]> {
@@ -116,16 +209,25 @@ async function loadRecipesFromViteGlob(): Promise<Recipe[]> {
 
 interface UseRecipesSourceOptions {
   onData: (data: { recipes: Recipe[]; shoppingConfig: ShoppingConfig }) => void;
+  getSettings?: () => SourceSettings;
 }
 
 export function useRecipesSource(options: UseRecipesSourceOptions) {
   let pollId: number | null = null;
   let fingerprint = "";
 
-  async function fetchOptionalText(paths: string[]): Promise<string> {
+  function getSettings(): SourceSettings {
+    const raw = options.getSettings?.() ?? DEFAULT_SOURCE_SETTINGS;
+    return normalizeSourceSettings(raw);
+  }
+
+  async function fetchOptionalLocalText(paths: string[]): Promise<string> {
     for (const path of paths) {
+      const normalized = normalizeRelativePath(path);
+      if (!normalized) continue;
+
       try {
-        const res = await fetch(path, { cache: "no-store" });
+        const res = await fetch(normalized, { cache: "no-store" });
         if (!res.ok) continue;
         return await res.text();
       } catch {
@@ -135,9 +237,36 @@ export function useRecipesSource(options: UseRecipesSourceOptions) {
     return "";
   }
 
-  async function loadShoppingConfig(): Promise<ShoppingConfig> {
-    const aisleRaw = await fetchOptionalText(["config/aisle.conf", "aisle.conf", "shopping/aisle.conf"]);
-    const pantryRaw = await fetchOptionalText(["config/pantry.conf", "pantry.conf", "shopping/pantry.conf"]);
+  async function loadShoppingConfig(settings: SourceSettings): Promise<ShoppingConfig> {
+    if (settings.mode === "github-public" && (!settings.githubOwner || !settings.githubRepo)) {
+      return { aisleByIngredient: {}, pantryByIngredient: {} };
+    }
+
+    const aisleCandidates = [settings.aislePath, "config/aisle.conf", "aisle.conf", "shopping/aisle.conf"];
+    const pantryCandidates = [settings.pantryPath, "config/pantry.conf", "pantry.conf", "shopping/pantry.conf"];
+
+    const aisleRaw =
+      settings.mode === "github-public"
+        ? await (async () => {
+            for (const path of aisleCandidates) {
+              const raw = await fetchGithubText(settings, path);
+              if (raw) return raw;
+            }
+            return "";
+          })()
+        : await fetchOptionalLocalText(aisleCandidates);
+
+    const pantryRaw =
+      settings.mode === "github-public"
+        ? await (async () => {
+            for (const path of pantryCandidates) {
+              const raw = await fetchGithubText(settings, path);
+              if (raw) return raw;
+            }
+            return "";
+          })()
+        : await fetchOptionalLocalText(pantryCandidates);
+
     return {
       aisleByIngredient: parseAisleConfig(aisleRaw),
       pantryByIngredient: parsePantryConfig(pantryRaw),
@@ -145,13 +274,26 @@ export function useRecipesSource(options: UseRecipesSourceOptions) {
   }
 
   async function refresh(force = false): Promise<void> {
-    let recipes = await fetchRecipesFromHttpDirectory(DEFAULT_RECIPES_PATH);
-    if (recipes.length === 0 && import.meta.env.DEV) {
+    const settings = getSettings();
+
+    let recipes: Recipe[] =
+      settings.mode === "github-public"
+        ? await fetchRecipesFromGithub(settings)
+        : await fetchRecipesFromHttpDirectory(settings.recipesPath);
+
+    if (
+      recipes.length === 0 &&
+      import.meta.env.DEV &&
+      settings.mode === "local-http" &&
+      settings.recipesPath === DEFAULT_RECIPES_PATH
+    ) {
       recipes = await loadRecipesFromViteGlob();
     }
-    const shoppingConfig = await loadShoppingConfig();
+
+    const shoppingConfig = await loadShoppingConfig(settings);
     recipes.sort((a, b) => a.path.localeCompare(b.path));
-    const nextFingerprint = `${buildRecipesFingerprint(recipes)}::${buildShoppingConfigFingerprint(shoppingConfig)}`;
+
+    const nextFingerprint = `${JSON.stringify(settings)}::${buildRecipesFingerprint(recipes)}::${buildShoppingConfigFingerprint(shoppingConfig)}`;
 
     if (!force && nextFingerprint === fingerprint) {
       return;

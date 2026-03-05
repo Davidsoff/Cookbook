@@ -9,4 +9,7 @@ const base = withTrailingSlash(process.env.VITE_BASE_PATH ?? "/");
 export default defineConfig({
   base,
   plugins: [vue()],
+  test: {
+    exclude: ["**/node_modules/**", "**/dist/**", "**/stryker-tmp/**", "**/.stryker-tmp/**"],
+  },
 });

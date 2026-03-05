@@ -17,5 +17,6 @@ const emit = defineEmits<{
     <button :class="{ active: tab === 'tools' }" type="button" @click="emit('set-tab', 'tools')">Tools</button>
     <button :class="{ active: tab === 'meal-plan' }" type="button" @click="emit('set-tab', 'meal-plan')">Meal Plan</button>
     <button :class="{ active: tab === 'plan-shopping' }" type="button" @click="emit('set-tab', 'plan-shopping')">Plan Shopping</button>
+    <button :class="{ active: tab === 'settings' }" type="button" @click="emit('set-tab', 'settings')">Settings</button>
   </div>
 </template>
