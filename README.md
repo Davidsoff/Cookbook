@@ -44,6 +44,16 @@ npm run preview
 npm test
 ```
 
+## GitHub Pages deployment
+
+Yes—this app can be built in GitHub Actions and hosted on GitHub Pages.
+
+1. Push to the `main` branch (or trigger the workflow manually).
+2. In GitHub repo settings, set **Pages > Build and deployment > Source** to **GitHub Actions**.
+3. The workflow at `.github/workflows/deploy-pages.yml` builds with `npm ci && npm run build` and deploys `dist/`.
+
+The workflow uses `actions/configure-pages` and passes its `base_path` to Vite via `VITE_BASE_PATH`, so assets resolve correctly for both project sites and custom-domain/user sites.
+
 ## Recipes
 
 Put `.cook` files under `recipes/`, including nested folders, for example:
