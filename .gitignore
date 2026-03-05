@@ -5,3 +5,5 @@ dist
 .codex-readiness-unit-test/
 stryker-tmp/
 reports/mutation/
+.codex/
+stryker.log
