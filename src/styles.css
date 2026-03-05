@@ -193,7 +193,7 @@ code {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 8px;
   margin: 12px 0;
 }
@@ -445,6 +445,39 @@ code {
   gap: 12px;
 }
 
+.meal-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.meal-plan-list {
+  display: grid;
+  gap: 8px;
+}
+
+.meal-plan-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) 90px auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.meal-plan-row select,
+.meal-plan-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.meal-plan-date {
+  font-size: 13px;
+  color: var(--text);
+}
+
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;
@@ -455,6 +488,10 @@ code {
   }
 
   .steps-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .meal-plan-row {
     grid-template-columns: 1fr;
   }
 }

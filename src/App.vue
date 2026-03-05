@@ -8,6 +8,8 @@ import IngredientsPanel from "./components/IngredientsPanel.vue";
 import StepsPanel from "./components/StepsPanel.vue";
 import ToolsPanel from "./components/ToolsPanel.vue";
 import ShoppingPanel from "./components/ShoppingPanel.vue";
+import MealPlanPanel from "./components/MealPlanPanel.vue";
+import PlanShoppingPanel from "./components/PlanShoppingPanel.vue";
 import { useCookbookStore } from "./stores/useCookbookStore";
 import { useRecipesSource } from "./composables/useRecipesSource";
 import { cookbookUiContextKey } from "./lib/cookbookUiContext";
@@ -94,7 +96,17 @@ onUnmounted(() => {
           />
 
           <ToolsPanel v-else-if="store.tab === 'tools'" :recipe="store.activeRecipe" />
-          <ShoppingPanel v-else :recipe="store.activeRecipe" :shopping-config="store.shoppingConfig" />
+          <ShoppingPanel v-else-if="store.tab === 'shopping'" :recipe="store.activeRecipe" :shopping-config="store.shoppingConfig" />
+          <MealPlanPanel
+            v-else-if="store.tab === 'meal-plan'"
+            :week="store.mealPlanWeek"
+            :recipes="store.recipes"
+            @set-recipe="store.setPlannedRecipe($event.dateIso, $event.recipePath)"
+            @set-servings="store.setPlannedServings($event.dateIso, $event.servings)"
+            @generate-random="store.generateRandomWeek($event)"
+            @clear-week="store.clearMealPlanWeek()"
+          />
+          <PlanShoppingPanel v-else :categories="store.planShoppingCategories" />
         </div>
       </section>
     </main>

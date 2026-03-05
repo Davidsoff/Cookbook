@@ -16,6 +16,10 @@ Vue 3 + TypeScript app for browsing and cooking from Cooklang (`.cook`) recipes.
 - Start/cancel timers from inline step timers
 - Active timers panel with live countdown
 - Tools tab listing parsed cookware/tools
+- Meal Plan tab for rolling next 7 days (one slot/day)
+- Random meal-plan generation with no repeats across filled days
+- Per-day planned servings with local persistence (`localStorage`)
+- Plan Shopping tab aggregating all planned meals with pantry + aisle config
 - Auto-refresh on changes (polling + focus/visibility refresh)
 
 ## Run locally

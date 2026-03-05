@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildShoppingList, parseAisleConfig, parsePantryConfig } from "../src/lib/shopping";
+import { buildShoppingList, buildShoppingListFromPlan, parseAisleConfig, parsePantryConfig } from "../src/lib/shopping";
 import type { Ingredient } from "../src/types/recipe";
+import type { PlannedRecipeEntry } from "../src/types/meal-plan";
 
 function ingredient(name: string, amount: number, unit: string): Ingredient {
   return {
@@ -38,5 +39,34 @@ describe("shopping", () => {
     expect(shopping[0].category).toBe("Produce");
     expect(shopping[0].items.find((item) => item.name.toLowerCase() === "mint")?.quantityText).toBe("35 ml");
     expect(shopping[0].items.find((item) => item.name.toLowerCase() === "onion")?.quantityText).toBe("300 g");
+  });
+
+  it("builds plan shopping list from planned entries", () => {
+    const entries: PlannedRecipeEntry[] = [
+      {
+        day: { dateIso: "2026-03-05", recipePath: "recipes/mint.cook", servings: 4 },
+        recipe: {
+          name: "mint",
+          path: "recipes/mint.cook",
+          content: "",
+          parsed: {
+            title: "mint",
+            description: "",
+            image: "",
+            servingsBase: 2,
+            ingredients: [{ ...ingredient("mint", 0.25, "cup"), fixed: false, preparation: "" }],
+            tools: [],
+            steps: [],
+          },
+        },
+      },
+    ];
+    const shopping = buildShoppingListFromPlan(entries, "metric", {
+      aisleByIngredient: { mint: "Produce" },
+      pantryByIngredient: {},
+    });
+
+    expect(shopping).toHaveLength(1);
+    expect(shopping[0].items[0].quantityText).toBe("120 ml");
   });
 });

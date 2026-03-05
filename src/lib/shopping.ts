@@ -1,4 +1,5 @@
 import type { Ingredient, UnitSystem } from "../types/recipe";
+import type { PlannedRecipeEntry } from "../types/meal-plan";
 import type { PantryItem, ShoppingCategory, ShoppingConfig } from "../types/shopping";
 import { parseQuantitySpec } from "./cooklang";
 import { formatBaseQuantity, formatQuantityNumber, toBaseQuantity } from "./units";
@@ -156,4 +157,28 @@ export function buildShoppingList(
     category.items.sort((a, b) => a.name.localeCompare(b.name));
   }
   return categories;
+}
+
+export function buildShoppingListFromPlan(
+  entries: PlannedRecipeEntry[],
+  unitSystem: UnitSystem,
+  config: ShoppingConfig,
+): ShoppingCategory[] {
+  const combined: Ingredient[] = [];
+  for (const entry of entries) {
+    if (!entry.recipe || !entry.day.recipePath) continue;
+    const baseServings = entry.recipe.parsed.servingsBase || 1;
+    const plannedServings = entry.day.servings > 0 ? entry.day.servings : baseServings;
+    const scaleFactor = plannedServings / baseServings;
+
+    for (const ingredient of entry.recipe.parsed.ingredients) {
+      combined.push({
+        ...ingredient,
+        numeric: ingredient.numeric == null ? null : ingredient.numeric * (ingredient.fixed ? 1 : scaleFactor),
+        fixed: ingredient.fixed,
+      });
+    }
+  }
+
+  return buildShoppingList(combined, 1, unitSystem, config);
 }
