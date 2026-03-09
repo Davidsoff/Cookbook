@@ -63,6 +63,19 @@ describe("meal plan helpers", () => {
     expect(filled).toHaveLength(2);
   });
 
+  it("respects overwriteFilled=false and uses recipe servings fallback", () => {
+    const week = createRollingWeek(new Date("2026-03-05T10:00:00"));
+    week.days[0].recipePath = "recipes/existing.cook";
+    week.days[0].servings = 3;
+    const recipes = [makeRecipe("recipes/new.cook", 0)];
+
+    const generated = generateRandomWeekPlan(week, recipes, { overwriteFilled: false, rng: () => 0.2 });
+    expect(generated.days[0].recipePath).toBe("recipes/existing.cook");
+    expect(generated.days[0].servings).toBe(3);
+    const assigned = generated.days.find((day, index) => index > 0 && day.recipePath === "recipes/new.cook");
+    expect(assigned?.servings).toBe(1);
+  });
+
   it("formats local date iso consistently", () => {
     expect(toLocalDateIso(new Date("2026-03-05T23:59:59"))).toBe("2026-03-05");
   });

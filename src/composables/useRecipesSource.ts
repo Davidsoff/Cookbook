@@ -4,7 +4,7 @@ import { adaptRawRecipeFile, adaptRawRecipeFiles } from "../lib/recipeAdapter";
 import { parseAisleConfig, parsePantryConfig } from "../lib/shopping";
 import type { ShoppingConfig } from "../types/shopping";
 import type { SourceSettings } from "../types/source-settings";
-import { DEFAULT_SOURCE_SETTINGS, normalizeSourceSettings } from "../lib/sourceSettings";
+import { getDefaultSourceSettings, normalizeSourceSettings } from "../lib/sourceSettings";
 
 const DEFAULT_RECIPES_PATH = "recipes/";
 const POLL_INTERVAL_MS = 3000;
@@ -217,7 +217,7 @@ export function useRecipesSource(options: UseRecipesSourceOptions) {
   let fingerprint = "";
 
   function getSettings(): SourceSettings {
-    const raw = options.getSettings?.() ?? DEFAULT_SOURCE_SETTINGS;
+    const raw = options.getSettings?.() ?? getDefaultSourceSettings();
     return normalizeSourceSettings(raw);
   }
 

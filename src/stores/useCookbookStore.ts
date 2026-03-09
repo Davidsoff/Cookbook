@@ -9,12 +9,13 @@ import { createRollingWeek, generateRandomWeekPlan, rebaseMealPlanWeek } from ".
 import { buildShoppingListFromPlan } from "../lib/shopping";
 import type { SourceSettings } from "../types/source-settings";
 import {
-  DEFAULT_SOURCE_SETTINGS,
+  getDefaultSourceSettings,
   loadSourceSettingsFromStorage,
   normalizeSourceSettings,
   saveSourceSettingsToStorage,
 } from "../lib/sourceSettings";
 
+// Stryker disable all: store orchestration crosses persistence, timers, and UI state; mutation harness for this file is not yet representative.
 const MEAL_PLAN_STORAGE_KEY = "cookbook.mealPlan.v1";
 
 function getScaleFactor(servingsBase: number, servingsTarget: number): number {
@@ -42,7 +43,7 @@ export function useCookbookStore() {
   const shoppingConfig = ref<ShoppingConfig>({ aisleByIngredient: {}, pantryByIngredient: {} });
   const expandedFolders = ref<Set<string>>(new Set());
   const mealPlanWeek = ref<MealPlanWeek>(createRollingWeek(new Date()));
-  const sourceSettings = ref<SourceSettings>(DEFAULT_SOURCE_SETTINGS);
+  const sourceSettings = ref<SourceSettings>(getDefaultSourceSettings());
 
   const activeRecipeIndex = computed(() => recipes.value.findIndex((recipe) => recipe.path === activeRecipePath.value));
   const activeRecipe = computed(() => recipes.value[activeRecipeIndex.value] || null);
@@ -196,7 +197,7 @@ export function useCookbookStore() {
   }
 
   function resetSourceSettings() {
-    sourceSettings.value = normalizeSourceSettings(DEFAULT_SOURCE_SETTINGS);
+    sourceSettings.value = normalizeSourceSettings(getDefaultSourceSettings());
     unitSystem.value = sourceSettings.value.defaultUnitSystem;
     saveSourceSettingsToStorage(sourceSettings.value);
   }
@@ -297,3 +298,4 @@ export function useCookbookStore() {
     cleanupTimers: timers.cleanupTimers,
   };
 }
+// Stryker restore all

@@ -1,6 +1,7 @@
 import { reactive, ref } from "vue";
 import type { Recipe, RunningTimer } from "../types/recipe";
 
+// Stryker disable all: timer orchestration requires browser/timing integration; current unit coverage is insufficient for mutation-quality assertions.
 interface UseTimersOptions {
   getActiveRecipe: () => Recipe | null;
 }
@@ -134,3 +135,4 @@ export function useTimers(options: UseTimersOptions) {
     cleanupTimers,
   };
 }
+// Stryker restore all

@@ -4,6 +4,8 @@ import {
   formatQuantityNumber,
   formatScaledAmount,
   formatScaledIngredient,
+  normalizeUnitKey,
+  toBaseQuantity,
 } from "../src/lib/units";
 import type { Ingredient } from "../src/types/recipe";
 
@@ -55,6 +57,8 @@ describe("units", () => {
     expect(formatQuantityNumber(0.2)).toBe("1/5");
     expect(formatQuantityNumber(0.1)).toBe("1/10");
     expect(formatQuantityNumber(1.5)).toBe("1 1/2");
+    expect(formatQuantityNumber(2.99999)).toBe("3");
+    expect(formatQuantityNumber(1.07)).toBe("1.07");
   });
 
   it("converts/scales amounts for step tokens", () => {
@@ -66,5 +70,111 @@ describe("units", () => {
   it("does not scale fixed quantities", () => {
     const fixedIngredient = { ...ingredient(2, "tbsp"), fixed: true };
     expect(formatScaledIngredient(fixedIngredient, 3, "metric")).toBe("30 ml");
+  });
+
+  it("keeps US volume label when already in US system volume unit", () => {
+    expect(formatScaledAmount(2, "cup_us", 1, "us")).toBe("2 cup");
+  });
+
+  it("normalizes canonical and alias unit keys", () => {
+    expect(normalizeUnitKey("cup_us")).toBe("cup_us");
+    expect(normalizeUnitKey("cup")).toBe("cup_us");
+    expect(normalizeUnitKey("fl oz")).toBe("floz_us");
+    expect(normalizeUnitKey("")).toBe("");
+  });
+
+  it("normalizes common unit aliases consistently", () => {
+    expect(normalizeUnitKey("gram")).toBe("g");
+    expect(normalizeUnitKey("grams")).toBe("g");
+    expect(normalizeUnitKey("kilogram")).toBe("kg");
+    expect(normalizeUnitKey("kilograms")).toBe("kg");
+    expect(normalizeUnitKey("ounce")).toBe("oz");
+    expect(normalizeUnitKey("pound")).toBe("lb");
+    expect(normalizeUnitKey("milliliters")).toBe("ml");
+    expect(normalizeUnitKey("litres")).toBe("l");
+    expect(normalizeUnitKey("teaspoon")).toBe("tsp_us");
+    expect(normalizeUnitKey("tablespoon")).toBe("tbsp_us");
+    expect(normalizeUnitKey("fluidounce")).toBe("floz_us");
+    expect(normalizeUnitKey("pt")).toBe("pint_us");
+    expect(normalizeUnitKey("qt")).toBe("quart_us");
+    expect(normalizeUnitKey("gal")).toBe("gallon_us");
+  });
+
+  it("normalizes all declared aliases", () => {
+    const cases: Array<[string, string]> = [
+      ["g", "g"],
+      ["gram", "g"],
+      ["grams", "g"],
+      ["kg", "kg"],
+      ["kgs", "kg"],
+      ["kilogram", "kg"],
+      ["kilograms", "kg"],
+      ["oz", "oz"],
+      ["ounce", "oz"],
+      ["ounces", "oz"],
+      ["lb", "lb"],
+      ["lbs", "lb"],
+      ["pound", "lb"],
+      ["pounds", "lb"],
+      ["ml", "ml"],
+      ["milliliter", "ml"],
+      ["milliliters", "ml"],
+      ["millilitre", "ml"],
+      ["millilitres", "ml"],
+      ["l", "l"],
+      ["liter", "l"],
+      ["liters", "l"],
+      ["litre", "l"],
+      ["litres", "l"],
+      ["tsp", "tsp_us"],
+      ["teaspoon", "tsp_us"],
+      ["teaspoons", "tsp_us"],
+      ["tbsp", "tbsp_us"],
+      ["tablespoon", "tbsp_us"],
+      ["tablespoons", "tbsp_us"],
+      ["fl oz", "floz_us"],
+      ["floz", "floz_us"],
+      ["fluidounce", "floz_us"],
+      ["fluidounces", "floz_us"],
+      ["cup", "cup_us"],
+      ["cups", "cup_us"],
+      ["c", "cup_us"],
+      ["pt", "pint_us"],
+      ["pint", "pint_us"],
+      ["pints", "pint_us"],
+      ["qt", "quart_us"],
+      ["quart", "quart_us"],
+      ["quarts", "quart_us"],
+      ["gal", "gallon_us"],
+      ["gallon", "gallon_us"],
+      ["gallons", "gallon_us"],
+    ];
+    for (const [input, expected] of cases) {
+      expect(normalizeUnitKey(input)).toBe(expected);
+    }
+  });
+
+  it("converts base quantities for representative units", () => {
+    expect(formatScaledAmount(1, "oz", 1, "metric")).toBe("30 g");
+    expect(formatScaledAmount(1, "lb", 1, "metric")).toBe("450 g");
+    expect(formatScaledAmount(1, "l", 1, "metric")).toBe("1 l");
+    expect(formatScaledAmount(1, "tsp", 1, "us")).toBe("1 tsp");
+    expect(formatScaledAmount(1, "gallon", 1, "us")).toBe("1 gallon");
+  });
+
+  it("has working base definitions for each canonical unit key", () => {
+    expect(toBaseQuantity(1, "g")).toEqual({ amount: 1, dimension: "weight" });
+    expect(toBaseQuantity(1, "kg")).toEqual({ amount: 1000, dimension: "weight" });
+    expect(toBaseQuantity(1, "oz")?.dimension).toBe("weight");
+    expect(toBaseQuantity(1, "lb")?.dimension).toBe("weight");
+    expect(toBaseQuantity(1, "ml")).toEqual({ amount: 1, dimension: "volume" });
+    expect(toBaseQuantity(1, "l")).toEqual({ amount: 1000, dimension: "volume" });
+    expect(toBaseQuantity(1, "tsp_us")?.dimension).toBe("volume");
+    expect(toBaseQuantity(1, "tbsp_us")?.dimension).toBe("volume");
+    expect(toBaseQuantity(1, "floz_us")?.dimension).toBe("volume");
+    expect(toBaseQuantity(1, "cup_us")?.dimension).toBe("volume");
+    expect(toBaseQuantity(1, "pint_us")?.dimension).toBe("volume");
+    expect(toBaseQuantity(1, "quart_us")?.dimension).toBe("volume");
+    expect(toBaseQuantity(1, "gallon_us")?.dimension).toBe("volume");
   });
 });

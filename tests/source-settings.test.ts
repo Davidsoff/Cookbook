@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_SOURCE_SETTINGS,
   SOURCE_SETTINGS_STORAGE_KEY,
+  getDefaultSourceSettings,
   loadSourceSettingsFromStorage,
   normalizeSourceSettings,
   saveSourceSettingsToStorage,
@@ -49,9 +50,22 @@ describe("source settings", () => {
     expect(normalized.defaultUnitSystem).toBe("us");
   });
 
+  it("defaults to github source davidsoff/Cookbook", () => {
+    expect(DEFAULT_SOURCE_SETTINGS.mode).toBe("github-public");
+    expect(DEFAULT_SOURCE_SETTINGS.githubOwner).toBe("davidsoff");
+    expect(DEFAULT_SOURCE_SETTINGS.githubRepo).toBe("Cookbook");
+    expect(DEFAULT_SOURCE_SETTINGS.githubRef).toBe("main");
+  });
+
+  it("uses local-http as runtime default in dev", () => {
+    expect(getDefaultSourceSettings(true).mode).toBe("local-http");
+    expect(getDefaultSourceSettings(false).mode).toBe("github-public");
+  });
+
   it("loads defaults on invalid stored payload", () => {
     window.localStorage.setItem(SOURCE_SETTINGS_STORAGE_KEY, "{broken");
-    expect(loadSourceSettingsFromStorage()).toEqual(DEFAULT_SOURCE_SETTINGS);
+    expect(loadSourceSettingsFromStorage(false)).toEqual(DEFAULT_SOURCE_SETTINGS);
+    expect(loadSourceSettingsFromStorage(true).mode).toBe("local-http");
   });
 
   it("saves and loads normalized settings", () => {

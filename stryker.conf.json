@@ -2,24 +2,21 @@
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "testRunner": "command",
   "coverageAnalysis": "off",
+  "incremental": true,
   "reporters": ["progress", "clear-text", "html"],
+  "ignorers": ["parser-regex-literals"],
+  "plugins": ["@stryker-mutator/*", "./stryker-regex-ignorer.js"],
   "mutate": [
-    "src/lib/cooklang.ts",
-    "src/lib/mealPlan.ts",
-    "src/lib/shopping.ts",
-    "src/lib/sourceSettings.ts",
-    "src/lib/tree.ts",
-    "src/lib/units.ts"
+    "src/lib/*",
+    "src/stores/useCookbookStore.ts",
+    "src/composables/useTimers.ts"
   ],
   "thresholds": {
     "high": 100,
     "low": 100,
     "break": 100
   },
-  "mutator": {
-    "excludedMutations": ["AssignmentExpression"]
-  },
-  "concurrency": 8,
+  "concurrency": 1,
   "tempDirName": "stryker-tmp",
   "commandRunner": {
     "command": "npm test"

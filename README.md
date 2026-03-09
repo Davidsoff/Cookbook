@@ -4,7 +4,7 @@ Vue 3 + TypeScript app for browsing and cooking from Cooklang (`.cook`) recipes.
 
 ## Features
 
-- Auto-load recipes from `./recipes` over HTTP (recursive folder support)
+- Auto-load recipes/config from a public GitHub repo by default (`davidsoff/Cookbook`), and default to local HTTP when running local dev mode
 - Collapsible recipe folder tree in the sidebar
 - Recipe detail view with front-matter title/description/image
 - Ingredient scaling by servings
