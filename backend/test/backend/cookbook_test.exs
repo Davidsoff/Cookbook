@@ -46,6 +46,31 @@ defmodule Backend.CookbookTest do
     assert payload.shoppingConfig.aisleByIngredient["pasta"] == "Dry"
   end
 
+  test "normalizes shared config payloads with the frontend contract" do
+    assert {:ok, payload} =
+             Cookbook.update_config(%{
+               "mode" => "github-public",
+               "githubOwner" => " owner ",
+               "githubRepo" => " repo ",
+               "githubRef" => "",
+               "recipesPath" => " /recipes ",
+               "aislePath" => " ",
+               "pantryPath" => "/custom/pantry.conf",
+               "defaultUnitSystem" => "bogus"
+             })
+
+    assert payload.sourceSettings == %{
+             mode: "github-public",
+             githubOwner: "owner",
+             githubRepo: "repo",
+             githubRef: "main",
+             recipesPath: "recipes/",
+             aislePath: "config/aisle.conf",
+             pantryPath: "custom/pantry.conf",
+             defaultUnitSystem: "metric"
+           }
+  end
+
   test "stores meal plan days idempotently" do
     today = ~D[2026-03-09]
 

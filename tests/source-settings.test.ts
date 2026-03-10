@@ -68,6 +68,30 @@ describe("source settings", () => {
     expect(loadSourceSettingsFromStorage(true).mode).toBe("backend-api");
   });
 
+  it("matches backend normalization semantics for blank refs and path defaults", () => {
+    const normalized = normalizeSourceSettings({
+      mode: "github-public",
+      githubOwner: " owner ",
+      githubRepo: " repo ",
+      githubRef: "",
+      recipesPath: " /recipes ",
+      aislePath: " ",
+      pantryPath: "/custom/pantry.conf",
+      defaultUnitSystem: "bogus" as "metric",
+    });
+
+    expect(normalized).toEqual({
+      mode: "github-public",
+      githubOwner: "owner",
+      githubRepo: "repo",
+      githubRef: "main",
+      recipesPath: "recipes/",
+      aislePath: "config/aisle.conf",
+      pantryPath: "custom/pantry.conf",
+      defaultUnitSystem: "metric",
+    });
+  });
+
   it("saves and loads normalized settings", () => {
     saveSourceSettingsToStorage(
       normalizeSourceSettings({

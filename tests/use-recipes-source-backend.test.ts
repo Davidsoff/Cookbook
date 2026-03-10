@@ -73,12 +73,15 @@ describe("useRecipesSource backend-api", () => {
       onStatus,
     });
 
-    await source.refresh(true);
+    const result = await source.refresh(true);
 
     expect(onData).toHaveBeenCalledTimes(1);
     expect(onData.mock.calls[0][0].sourceSettings.mode).toBe("backend-api");
     expect(onData.mock.calls[0][0].recipes[0].path).toBe("recipes/a.cook");
     expect(onData.mock.calls[0][0].shoppingConfig.aisleByIngredient.mint).toBe("Herbs");
+    expect(result.snapshot?.sourceSettings.mode).toBe("backend-api");
+    expect(result.updated).toBe(true);
+    expect(result.error).toBeNull();
     expect(onStatus).toHaveBeenLastCalledWith({ backendAvailable: true, message: "" });
   });
 });

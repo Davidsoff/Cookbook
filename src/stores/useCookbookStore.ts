@@ -5,32 +5,67 @@ import { useTimers } from "../composables/useTimers";
 import type { TreeFolderNode } from "../types/tree";
 import type { ShoppingConfig } from "../types/shopping";
 import type { MealPlanWeek, PlannedRecipeEntry } from "../types/meal-plan";
-import { createRollingWeek, generateRandomWeekPlan, rebaseMealPlanWeek } from "../lib/mealPlan";
 import { buildShoppingListFromPlan } from "../lib/shopping";
 import type { SourceSettings } from "../types/source-settings";
 import {
-  getDefaultSourceSettings,
-  loadSourceSettingsFromStorage,
-  normalizeSourceSettings,
-  saveSourceSettingsToStorage,
-} from "../lib/sourceSettings";
+  buildRandomMealPlanWeek,
+  clearMealPlanEntries,
+  createMealPlanWeek,
+  loadMealPlanWeekFromStorage,
+  persistMealPlanToStorage,
+  pruneMealPlanRecipes,
+  rebaseStoredMealPlanWeek,
+  setMealPlanRecipe,
+  setMealPlanServings,
+} from "./cookbookMealPlan";
+import {
+  loadPersistedSourceSettingsState,
+  mergeSourceSettings,
+  persistMergedSourceSettings,
+  persistSourceSettings,
+  persistUnitSystem,
+  resetPersistedSourceSettings,
+} from "./sourceSettingsState";
 
 // Stryker disable all: store orchestration crosses persistence, timers, and UI state; mutation harness for this file is not yet representative.
-const MEAL_PLAN_STORAGE_KEY = "cookbook.mealPlan.v1";
-
 function getScaleFactor(servingsBase: number, servingsTarget: number): number {
   if (!servingsBase || servingsBase <= 0) return 1;
   return servingsTarget / servingsBase;
 }
 
-function safeParseStoredMealPlan(raw: string): MealPlanWeek | null {
-  try {
-    const parsed = JSON.parse(raw) as MealPlanWeek;
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.days)) return null;
-    return parsed;
-  } catch {
-    return null;
+function resetActiveRecipeState(recipe: Recipe | null, servingsBase: { value: number }, servingsTarget: { value: number }, tab: { value: Tab }) {
+  tab.value = "ingredients";
+  servingsBase.value = recipe?.parsed.servingsBase || 1;
+  servingsTarget.value = servingsBase.value;
+}
+
+function setRecipePath(previousPath: string, nextRecipes: Recipe[]): string {
+  return nextRecipes.some((recipe) => recipe.path === previousPath) ? previousPath : (nextRecipes[0]?.path ?? "");
+}
+
+function syncExpandedFolderSet(treeFolders: TreeFolderNode[], activePath: string | null, expanded: Set<string>): Set<string> {
+  const validPaths = new Set<string>();
+  const walk = (folders: TreeFolderNode[]) => {
+    for (const folder of folders) {
+      validPaths.add(folder.path);
+      walk(folder.folders);
+    }
+  };
+
+  walk(treeFolders);
+
+  const next = new Set<string>();
+  expanded.forEach((path) => {
+    if (validPaths.has(path)) {
+      next.add(path);
+    }
+  });
+
+  if (activePath) {
+    getAncestorFolderPaths(activePath).forEach((path) => next.add(path));
   }
+
+  return next;
 }
 
 export function useCookbookStore() {
@@ -42,8 +77,9 @@ export function useCookbookStore() {
   const unitSystem = ref<UnitSystem>("metric");
   const shoppingConfig = ref<ShoppingConfig>({ aisleByIngredient: {}, pantryByIngredient: {} });
   const expandedFolders = ref<Set<string>>(new Set());
-  const mealPlanWeek = ref<MealPlanWeek>(createRollingWeek(new Date()));
-  const sourceSettings = ref<SourceSettings>(getDefaultSourceSettings());
+  const persistedSourceState = loadPersistedSourceSettingsState();
+  const mealPlanWeek = ref<MealPlanWeek>(createMealPlanWeek(new Date()));
+  const sourceSettings = ref<SourceSettings>(persistedSourceState.sourceSettings);
 
   const activeRecipeIndex = computed(() => recipes.value.findIndex((recipe) => recipe.path === activeRecipePath.value));
   const activeRecipe = computed(() => recipes.value[activeRecipeIndex.value] || null);
@@ -68,88 +104,34 @@ export function useCookbookStore() {
     buildShoppingListFromPlan(plannedRecipesResolved.value, unitSystem.value, shoppingConfig.value),
   );
 
-  function isBackendMode() {
-    return sourceSettings.value.mode === "backend-api";
-  }
-
   function saveMealPlanToStorage() {
-    if (typeof window === "undefined" || isBackendMode()) return;
-    window.localStorage.setItem(MEAL_PLAN_STORAGE_KEY, JSON.stringify(mealPlanWeek.value));
+    persistMealPlanToStorage(mealPlanWeek.value, sourceSettings.value);
   }
 
   function initializeMealPlanWeek(today: Date) {
-    mealPlanWeek.value = createRollingWeek(today);
+    mealPlanWeek.value = createMealPlanWeek(today);
     saveMealPlanToStorage();
   }
 
   function loadMealPlanFromStorage() {
-    if (typeof window === "undefined") {
-      mealPlanWeek.value = createRollingWeek(new Date());
-      return;
-    }
-
-    if (isBackendMode()) {
-      mealPlanWeek.value = createRollingWeek(new Date());
-      return;
-    }
-
-    const raw = window.localStorage.getItem(MEAL_PLAN_STORAGE_KEY);
-    const stored = raw ? safeParseStoredMealPlan(raw) : null;
-    mealPlanWeek.value = rebaseMealPlanWeek(stored, new Date());
+    mealPlanWeek.value = loadMealPlanWeekFromStorage(sourceSettings.value, new Date());
     saveMealPlanToStorage();
   }
 
   function syncExpandedFolders() {
-    const validPaths = new Set<string>();
-    const walk = (folders: TreeFolderNode[]) => {
-      for (const folder of folders) {
-        validPaths.add(folder.path);
-        walk(folder.folders);
-      }
-    };
-
-    walk(treeData.value.root.folders);
-
-    const next = new Set<string>();
-    expandedFolders.value.forEach((path) => {
-      if (validPaths.has(path)) {
-        next.add(path);
-      }
-    });
-
-    const active = activeRecipe.value;
-    if (active) {
-      getAncestorFolderPaths(active.path).forEach((path) => next.add(path));
-    }
-
-    expandedFolders.value = next;
+    expandedFolders.value = syncExpandedFolderSet(
+      treeData.value.root.folders,
+      activeRecipe.value?.path ?? null,
+      expandedFolders.value,
+    );
   }
 
   function applyRecipes(nextRecipes: Recipe[]) {
     const previousPath = activeRecipePath.value;
     recipes.value = nextRecipes;
-
-    const stillExists = nextRecipes.some((recipe) => recipe.path === previousPath);
-    if (stillExists) {
-      activeRecipePath.value = previousPath;
-    } else {
-      activeRecipePath.value = nextRecipes[0]?.path || "";
-    }
-
-    const validPaths = new Set(nextRecipes.map((recipe) => recipe.path));
-    mealPlanWeek.value = {
-      ...mealPlanWeek.value,
-      days: mealPlanWeek.value.days.map((day) => {
-        if (!day.recipePath || validPaths.has(day.recipePath)) return day;
-        return { ...day, recipePath: null };
-      }),
-    };
-
-    tab.value = "ingredients";
-
-    const recipe = activeRecipe.value;
-    servingsBase.value = recipe?.parsed.servingsBase || 1;
-    servingsTarget.value = servingsBase.value;
+    activeRecipePath.value = setRecipePath(previousPath, nextRecipes);
+    mealPlanWeek.value = pruneMealPlanRecipes(mealPlanWeek.value, nextRecipes);
+    resetActiveRecipeState(activeRecipe.value, servingsBase, servingsTarget, tab);
 
     timers.stopAllTimers();
     syncExpandedFolders();
@@ -161,72 +143,49 @@ export function useCookbookStore() {
   }
 
   function replaceMealPlanWeek(next: MealPlanWeek) {
-    mealPlanWeek.value = rebaseMealPlanWeek(next, new Date());
+    mealPlanWeek.value = rebaseStoredMealPlanWeek(next, new Date());
     saveMealPlanToStorage();
   }
 
   function setPlannedRecipe(dateIso: string, recipePath: string | null) {
-    const recipe = recipePath ? recipes.value.find((item) => item.path === recipePath) : null;
-    mealPlanWeek.value = {
-      ...mealPlanWeek.value,
-      days: mealPlanWeek.value.days.map((day) => {
-        if (day.dateIso !== dateIso) return day;
-        return {
-          ...day,
-          recipePath,
-          servings: recipe?.parsed.servingsBase || day.servings || 1,
-        };
-      }),
-    };
+    mealPlanWeek.value = setMealPlanRecipe(mealPlanWeek.value, recipes.value, dateIso, recipePath);
     saveMealPlanToStorage();
   }
 
   function setPlannedServings(dateIso: string, servings: number) {
-    const nextServings = Number.isFinite(servings) ? Math.max(1, Math.min(64, Math.round(servings))) : 1;
-    mealPlanWeek.value = {
-      ...mealPlanWeek.value,
-      days: mealPlanWeek.value.days.map((day) => (day.dateIso === dateIso ? { ...day, servings: nextServings } : day)),
-    };
+    mealPlanWeek.value = setMealPlanServings(mealPlanWeek.value, dateIso, servings);
     saveMealPlanToStorage();
   }
 
   function generateRandomWeek(opts: { overwriteFilled: boolean }) {
-    mealPlanWeek.value = generateRandomWeekPlan(mealPlanWeek.value, recipes.value, opts);
+    mealPlanWeek.value = buildRandomMealPlanWeek(mealPlanWeek.value, recipes.value, opts);
     saveMealPlanToStorage();
   }
 
   function clearMealPlanWeek() {
-    mealPlanWeek.value = {
-      ...mealPlanWeek.value,
-      days: mealPlanWeek.value.days.map((day) => ({ ...day, recipePath: null, servings: 1 })),
-    };
+    mealPlanWeek.value = clearMealPlanEntries(mealPlanWeek.value);
     saveMealPlanToStorage();
   }
 
   function setSourceSettings(next: Partial<SourceSettings>) {
-    const merged = normalizeSourceSettings({ ...sourceSettings.value, ...next });
-    sourceSettings.value = merged;
-    unitSystem.value = merged.defaultUnitSystem;
-    saveSourceSettingsToStorage(merged);
-    if (isBackendMode()) {
-      mealPlanWeek.value = createRollingWeek(new Date());
+    const nextState = persistMergedSourceSettings(sourceSettings.value, next);
+    sourceSettings.value = nextState.sourceSettings;
+    unitSystem.value = nextState.unitSystem;
+    if (nextState.sourceSettings.mode === "backend-api") {
+      mealPlanWeek.value = createMealPlanWeek(new Date());
     }
   }
 
   function resetSourceSettings() {
-    sourceSettings.value = normalizeSourceSettings(getDefaultSourceSettings());
-    unitSystem.value = sourceSettings.value.defaultUnitSystem;
-    saveSourceSettingsToStorage(sourceSettings.value);
+    const nextState = resetPersistedSourceSettings();
+    sourceSettings.value = nextState.sourceSettings;
+    unitSystem.value = nextState.unitSystem;
   }
 
   function selectRecipe(path: string) {
     if (path === activeRecipePath.value) return;
     activeRecipePath.value = path;
-    tab.value = "ingredients";
-
-    const recipe = activeRecipe.value;
-    servingsBase.value = recipe?.parsed.servingsBase || 1;
-    servingsTarget.value = servingsBase.value;
+    resetActiveRecipeState(activeRecipe.value, servingsBase, servingsTarget, tab);
     timers.stopAllTimers();
 
     getAncestorFolderPaths(path).forEach((folderPath) => {
@@ -258,22 +217,18 @@ export function useCookbookStore() {
   }
 
   function setUnitSystem(nextSystem: UnitSystem) {
-    unitSystem.value = nextSystem;
-    sourceSettings.value = normalizeSourceSettings({
-      ...sourceSettings.value,
-      defaultUnitSystem: nextSystem,
-    });
-    saveSourceSettingsToStorage(sourceSettings.value);
+    const nextState = persistUnitSystem(sourceSettings.value, nextSystem);
+    unitSystem.value = nextState.unitSystem;
+    sourceSettings.value = nextState.sourceSettings;
   }
 
   function hydrateSourceSettings(next: SourceSettings) {
-    sourceSettings.value = normalizeSourceSettings(next);
-    unitSystem.value = sourceSettings.value.defaultUnitSystem;
-    saveSourceSettingsToStorage(sourceSettings.value);
+    const nextState = persistSourceSettings(next);
+    sourceSettings.value = nextState.sourceSettings;
+    unitSystem.value = nextState.unitSystem;
   }
 
-  sourceSettings.value = loadSourceSettingsFromStorage();
-  unitSystem.value = sourceSettings.value.defaultUnitSystem;
+  unitSystem.value = persistedSourceState.unitSystem;
   loadMealPlanFromStorage();
 
   return {

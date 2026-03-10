@@ -23,9 +23,7 @@ const backendMessage = ref("");
 const source = useRecipesSource({
   getSettings: () => store.sourceSettings,
   onData: ({ recipes, shoppingConfig, sourceSettings }) => {
-    if (sourceSettings) {
-      store.hydrateSourceSettings(sourceSettings);
-    }
+    store.hydrateSourceSettings(sourceSettings);
     store.applyRecipes(recipes);
     store.setShoppingConfig(shoppingConfig);
   },
@@ -76,7 +74,7 @@ onUnmounted(() => {
 watch(
   () => JSON.stringify(store.sourceSettings),
   () => {
-    source.refresh(true).catch(console.error);
+    void source.refresh(true);
     if (store.sourceSettings.mode === "backend-api") {
       refreshBackendMealPlan();
     }

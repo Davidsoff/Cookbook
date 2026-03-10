@@ -10,6 +10,7 @@ import type { BackendRecipeDto } from "../types/api";
 
 const DEFAULT_RECIPES_PATH = "recipes/";
 const POLL_INTERVAL_MS = 3000;
+const EMPTY_SHOPPING_CONFIG: ShoppingConfig = { aisleByIngredient: {}, pantryByIngredient: {} };
 
 function looksLikeSpaIndex(html: string): boolean {
   return html.includes('<div id="app"></div>') && html.includes("/src/main.ts");
@@ -38,7 +39,7 @@ function extractLinksFromDirectoryListing(html: string): string[] {
 function buildRecipesFingerprint(recipes: Recipe[]): string {
   return recipes
     .map((recipe) => `${recipe.path}:${hashText(recipe.content)}`)
-    .sort()
+    .sort((left, right) => left.localeCompare(right))
     .join("|");
 }
 
@@ -61,10 +62,15 @@ async function fetchRecipesFromHttpDirectory(basePath: string): Promise<Recipe[]
     try {
       res = await fetch(dirPath, { cache: "no-store" });
     } catch {
-      continue;
+      throw new SourceAccessError(`Could not fetch recipe directory: ${dirPath}`);
     }
 
-    if (!res.ok) continue;
+    if (!res.ok) {
+      if (dirPath === normalizedBase) {
+        throw new SourceAccessError(`Recipe directory returned ${res.status}: ${dirPath}`);
+      }
+      continue;
+    }
 
     const html = await res.text();
     if (looksLikeSpaIndex(html)) {
@@ -96,15 +102,7 @@ async function fetchRecipesFromHttpDirectory(basePath: string): Promise<Recipe[]
       const fileUrl = new URL(href, new URL(dirPath, window.location.href));
       const path = normalizeRelativePath(fileUrl.pathname);
 
-      let fileRes: Response;
-      try {
-        fileRes = await fetch(fileUrl.toString(), { cache: "no-store" });
-      } catch {
-        continue;
-      }
-      if (!fileRes.ok) continue;
-
-      const content = await fileRes.text();
+      const content = await fetchRequiredText(fileUrl.toString(), "recipe file", path);
       recipes.push(adaptRawRecipeFile({ path, content }));
     }
   }
@@ -150,23 +148,16 @@ async function fetchGithubTree(settings: SourceSettings): Promise<GithubTreeItem
         Accept: "application/vnd.github+json",
       },
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      throw new SourceAccessError(`GitHub tree request failed with ${res.status}`);
+    }
     const data = (await res.json()) as GithubTreeResponse;
-    if (!Array.isArray(data.tree)) return [];
+    if (!Array.isArray(data.tree)) {
+      throw new SourceAccessError("GitHub tree response did not contain a tree");
+    }
     return data.tree.filter((item) => item && typeof item.path === "string" && typeof item.type === "string");
   } catch {
-    return [];
-  }
-}
-
-async function fetchGithubText(settings: SourceSettings, path: string): Promise<string> {
-  if (!normalizeRelativePath(path)) return "";
-  try {
-    const res = await fetch(githubRawUrl(settings, path), { cache: "no-store" });
-    if (!res.ok) return "";
-    return await res.text();
-  } catch {
-    return "";
+    throw new SourceAccessError("Could not load recipe tree from GitHub");
   }
 }
 
@@ -184,14 +175,10 @@ async function fetchRecipesFromGithub(settings: SourceSettings): Promise<Recipe[
     .sort((a, b) => a.localeCompare(b));
 
   const recipes = await Promise.all(
-    paths.map(async (path) => {
-      const content = await fetchGithubText(settings, path);
-      if (!content) return null;
-      return adaptRawRecipeFile({ path, content });
-    }),
+    paths.map(async (path) => adaptRawRecipeFile({ path, content: await fetchRequiredGithubText(settings, path, "GitHub recipe file") })),
   );
 
-  return recipes.filter((item): item is Recipe => item != null);
+  return recipes;
 }
 
 async function loadRecipesFromViteGlob(): Promise<Recipe[]> {
@@ -210,144 +197,280 @@ async function loadRecipesFromViteGlob(): Promise<Recipe[]> {
 }
 
 interface UseRecipesSourceOptions {
-  onData: (data: { recipes: Recipe[]; shoppingConfig: ShoppingConfig; sourceSettings?: SourceSettings }) => void;
+  onData: (data: SourceSnapshot) => void;
   getSettings?: () => SourceSettings;
   onStatus?: (status: { backendAvailable: boolean; message: string }) => void;
 }
 
+export interface SourceSnapshot {
+  recipes: Recipe[];
+  shoppingConfig: ShoppingConfig;
+  sourceSettings: SourceSettings;
+}
+
+export interface SourceRefreshResult {
+  snapshot: SourceSnapshot | null;
+  status: { backendAvailable: boolean; message: string };
+  updated: boolean;
+  error: Error | null;
+}
+
+interface TextFetchResult {
+  kind: "ok" | "missing" | "error";
+  text?: string;
+  error?: SourceAccessError;
+}
+
+class SourceAccessError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SourceAccessError";
+  }
+}
+
+function getSourceSettings(options: UseRecipesSourceOptions): SourceSettings {
+  const raw = options.getSettings?.() ?? getDefaultSourceSettings();
+  return normalizeSourceSettings(raw);
+}
+
+function createSuccessStatus() {
+  return { backendAvailable: true, message: "" };
+}
+
+function createFailureStatus(error: unknown) {
+  return {
+    backendAvailable: false,
+    message: error instanceof Error ? error.message : "Source unavailable",
+  };
+}
+
+function buildSourceFingerprint(snapshot: SourceSnapshot): string {
+  return `${JSON.stringify(snapshot.sourceSettings)}::${buildRecipesFingerprint(snapshot.recipes)}::${buildShoppingConfigFingerprint(snapshot.shoppingConfig)}`;
+}
+
+async function fetchTextResult(url: string, label: string): Promise<TextFetchResult> {
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (res.status === 404) {
+      return { kind: "missing" };
+    }
+    if (!res.ok) {
+      return {
+        kind: "error",
+        error: new SourceAccessError(`${label} returned ${res.status}: ${url}`),
+      };
+    }
+    return { kind: "ok", text: await res.text() };
+  } catch {
+    return {
+      kind: "error",
+      error: new SourceAccessError(`Could not fetch ${label}: ${url}`),
+    };
+  }
+}
+
+async function fetchRequiredText(url: string, label: string, path: string): Promise<string> {
+  const result = await fetchTextResult(url, label);
+  if (result.kind === "ok") {
+    return result.text ?? "";
+  }
+  if (result.kind === "missing") {
+    throw new SourceAccessError(`${label} not found: ${path}`);
+  }
+  throw result.error ?? new SourceAccessError(`Could not fetch ${label}: ${path}`);
+}
+
+async function fetchLocalTextResult(path: string, label: string): Promise<TextFetchResult> {
+  const normalized = normalizeRelativePath(path);
+  if (!normalized) {
+    return { kind: "missing" };
+  }
+
+  return fetchTextResult(normalized, label);
+}
+
+async function fetchOptionalLocalText(paths: string[], label: string): Promise<string> {
+  let firstError: SourceAccessError | null = null;
+
+  for (const path of paths) {
+    const result = await fetchLocalTextResult(path, label);
+    if (result.kind === "ok") {
+      return result.text ?? "";
+    }
+    if (result.kind === "error" && !firstError) {
+      firstError = result.error ?? null;
+    }
+  }
+
+  if (firstError) {
+    throw firstError;
+  }
+
+  return "";
+}
+
+async function loadShoppingConfig(settings: SourceSettings): Promise<ShoppingConfig> {
+  if (settings.mode === "github-public" && (!settings.githubOwner || !settings.githubRepo)) {
+    return EMPTY_SHOPPING_CONFIG;
+  }
+
+  const aisleCandidates = [settings.aislePath, "config/aisle.conf", "aisle.conf", "shopping/aisle.conf"];
+  const pantryCandidates = [settings.pantryPath, "config/pantry.conf", "pantry.conf", "shopping/pantry.conf"];
+
+  const aisleRaw =
+    settings.mode === "github-public"
+      ? await fetchFirstGithubText(settings, aisleCandidates, "shopping config")
+      : await fetchOptionalLocalText(aisleCandidates, "shopping config");
+
+  const pantryRaw =
+    settings.mode === "github-public"
+      ? await fetchFirstGithubText(settings, pantryCandidates, "shopping config")
+      : await fetchOptionalLocalText(pantryCandidates, "shopping config");
+
+  return {
+    aisleByIngredient: parseAisleConfig(aisleRaw),
+    pantryByIngredient: parsePantryConfig(pantryRaw),
+  };
+}
+
+function adaptBackendRecipe(raw: BackendRecipeDto): Recipe {
+  return adaptRawRecipeFile({ path: raw.path, content: raw.content });
+}
+
+function sortRecipes(recipes: Recipe[]): Recipe[] {
+  return recipes.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function loadBackendData(): Promise<SourceSnapshot> {
+  await fetchBackendHealth();
+  const [config, recipesResponse] = await Promise.all([fetchBackendConfig(), fetchBackendRecipes()]);
+
+  return {
+    recipes: sortRecipes(recipesResponse.recipes.map(adaptBackendRecipe)),
+    shoppingConfig: config.shoppingConfig,
+    sourceSettings: normalizeSourceSettings(config.sourceSettings),
+  };
+}
+
+function applySnapshot(
+  options: UseRecipesSourceOptions,
+  force: boolean,
+  fingerprintState: { value: string },
+  snapshot: SourceSnapshot,
+): boolean {
+  const nextFingerprint = buildSourceFingerprint(snapshot);
+  if (!force && nextFingerprint === fingerprintState.value) {
+    options.onStatus?.(createSuccessStatus());
+    return false;
+  }
+
+  fingerprintState.value = nextFingerprint;
+  options.onStatus?.(createSuccessStatus());
+  options.onData(snapshot);
+  return true;
+}
+
+function shouldUseViteFallback(settings: SourceSettings, recipes: Recipe[]): boolean {
+  return (
+    recipes.length === 0 &&
+    import.meta.env.DEV &&
+    settings.mode === "local-http" &&
+    settings.recipesPath === DEFAULT_RECIPES_PATH
+  );
+}
+
+async function fetchGithubTextResult(settings: SourceSettings, path: string, label: string): Promise<TextFetchResult> {
+  const normalizedPath = normalizeRelativePath(path);
+  if (!normalizedPath) {
+    return { kind: "missing" };
+  }
+
+  return fetchTextResult(githubRawUrl(settings, normalizedPath), label);
+}
+
+async function fetchRequiredGithubText(settings: SourceSettings, path: string, label: string): Promise<string> {
+  return fetchRequiredText(githubRawUrl(settings, path), label, path);
+}
+
+async function fetchFirstGithubText(settings: SourceSettings, paths: string[], label: string): Promise<string> {
+  let firstError: SourceAccessError | null = null;
+
+  for (const path of paths) {
+    const result = await fetchGithubTextResult(settings, path, label);
+    if (result.kind === "ok") {
+      return result.text ?? "";
+    }
+    if (result.kind === "error" && !firstError) {
+      firstError = result.error ?? null;
+    }
+  }
+
+  if (firstError) {
+    throw firstError;
+  }
+
+  return "";
+}
+
+async function loadLocalData(settings: SourceSettings): Promise<SourceSnapshot> {
+  const recipes =
+    settings.mode === "github-public"
+      ? await fetchRecipesFromGithub(settings)
+      : await fetchRecipesFromHttpDirectory(settings.recipesPath);
+  const sourceSettings = normalizeSourceSettings(settings);
+  const resolvedRecipes = shouldUseViteFallback(sourceSettings, recipes) ? await loadRecipesFromViteGlob() : recipes;
+
+  return {
+    recipes: sortRecipes(resolvedRecipes),
+    shoppingConfig: await loadShoppingConfig(sourceSettings),
+    sourceSettings,
+  };
+}
+
+async function loadSourceSnapshot(settings: SourceSettings): Promise<SourceSnapshot> {
+  if (settings.mode === "backend-api") {
+    return loadBackendData();
+  }
+
+  return loadLocalData(settings);
+}
+
 export function useRecipesSource(options: UseRecipesSourceOptions) {
   let pollId: number | null = null;
-  let fingerprint = "";
+  const fingerprintState = { value: "" };
 
-  function getSettings(): SourceSettings {
-    const raw = options.getSettings?.() ?? getDefaultSourceSettings();
-    return normalizeSourceSettings(raw);
-  }
+  async function refresh(force = false): Promise<SourceRefreshResult> {
+    const settings = getSourceSettings(options);
 
-  async function fetchOptionalLocalText(paths: string[]): Promise<string> {
-    for (const path of paths) {
-      const normalized = normalizeRelativePath(path);
-      if (!normalized) continue;
+    try {
+      const snapshot = await loadSourceSnapshot(settings);
+      const updated = applySnapshot(options, force, fingerprintState, snapshot);
 
-      try {
-        const res = await fetch(normalized, { cache: "no-store" });
-        if (!res.ok) continue;
-        return await res.text();
-      } catch {
-        continue;
-      }
+      return {
+        snapshot,
+        status: createSuccessStatus(),
+        updated,
+        error: null,
+      };
+    } catch (error) {
+      const normalizedError =
+        error instanceof Error ? error : new SourceAccessError("Source refresh failed");
+      const status = createFailureStatus(normalizedError);
+      options.onStatus?.(status);
+
+      return {
+        snapshot: null,
+        status,
+        updated: false,
+        error: normalizedError,
+      };
     }
-    return "";
-  }
-
-  async function loadShoppingConfig(settings: SourceSettings): Promise<ShoppingConfig> {
-    if (settings.mode === "github-public" && (!settings.githubOwner || !settings.githubRepo)) {
-      return { aisleByIngredient: {}, pantryByIngredient: {} };
-    }
-
-    const aisleCandidates = [settings.aislePath, "config/aisle.conf", "aisle.conf", "shopping/aisle.conf"];
-    const pantryCandidates = [settings.pantryPath, "config/pantry.conf", "pantry.conf", "shopping/pantry.conf"];
-
-    const aisleRaw =
-      settings.mode === "github-public"
-        ? await (async () => {
-            for (const path of aisleCandidates) {
-              const raw = await fetchGithubText(settings, path);
-              if (raw) return raw;
-            }
-            return "";
-          })()
-        : await fetchOptionalLocalText(aisleCandidates);
-
-    const pantryRaw =
-      settings.mode === "github-public"
-        ? await (async () => {
-            for (const path of pantryCandidates) {
-              const raw = await fetchGithubText(settings, path);
-              if (raw) return raw;
-            }
-            return "";
-          })()
-        : await fetchOptionalLocalText(pantryCandidates);
-
-    return {
-      aisleByIngredient: parseAisleConfig(aisleRaw),
-      pantryByIngredient: parsePantryConfig(pantryRaw),
-    };
-  }
-
-  function adaptBackendRecipe(raw: BackendRecipeDto): Recipe {
-    return adaptRawRecipeFile({ path: raw.path, content: raw.content });
-  }
-
-  async function loadBackendData(): Promise<{ recipes: Recipe[]; shoppingConfig: ShoppingConfig; sourceSettings: SourceSettings }> {
-    await fetchBackendHealth();
-    const [config, recipesResponse] = await Promise.all([fetchBackendConfig(), fetchBackendRecipes()]);
-    const recipes = recipesResponse.recipes.map(adaptBackendRecipe).sort((a, b) => a.path.localeCompare(b.path));
-
-    return {
-      recipes,
-      shoppingConfig: config.shoppingConfig,
-      sourceSettings: normalizeSourceSettings(config.sourceSettings),
-    };
-  }
-
-  async function refresh(force = false): Promise<void> {
-    const settings = getSettings();
-
-    if (settings.mode === "backend-api") {
-      const { recipes, shoppingConfig, sourceSettings } = await loadBackendData();
-      const nextFingerprint = `${JSON.stringify(sourceSettings)}::${buildRecipesFingerprint(recipes)}::${buildShoppingConfigFingerprint(shoppingConfig)}`;
-
-      if (!force && nextFingerprint === fingerprint) {
-        options.onStatus?.({ backendAvailable: true, message: "" });
-        return;
-      }
-
-      fingerprint = nextFingerprint;
-      options.onStatus?.({ backendAvailable: true, message: "" });
-      options.onData({ recipes, shoppingConfig, sourceSettings });
-      return;
-    }
-
-    let recipes: Recipe[] =
-      settings.mode === "github-public"
-        ? await fetchRecipesFromGithub(settings)
-        : await fetchRecipesFromHttpDirectory(settings.recipesPath);
-
-    if (
-      recipes.length === 0 &&
-      import.meta.env.DEV &&
-      settings.mode === "local-http" &&
-      settings.recipesPath === DEFAULT_RECIPES_PATH
-    ) {
-      recipes = await loadRecipesFromViteGlob();
-    }
-
-    const shoppingConfig = await loadShoppingConfig(settings);
-    recipes.sort((a, b) => a.path.localeCompare(b.path));
-
-    const nextFingerprint = `${JSON.stringify(settings)}::${buildRecipesFingerprint(recipes)}::${buildShoppingConfigFingerprint(shoppingConfig)}`;
-
-    if (!force && nextFingerprint === fingerprint) {
-      return;
-    }
-
-    fingerprint = nextFingerprint;
-    options.onStatus?.({ backendAvailable: true, message: "" });
-    options.onData({ recipes, shoppingConfig });
   }
 
   function startPolling() {
     stopPolling();
     pollId = window.setInterval(() => {
-      refresh(false).catch((error) => {
-        options.onStatus?.({
-          backendAvailable: false,
-          message: error instanceof Error ? error.message : "Backend unavailable",
-        });
-        console.error(error);
-      });
+      void refresh(false);
     }, POLL_INTERVAL_MS);
   }
 
@@ -359,25 +482,12 @@ export function useRecipesSource(options: UseRecipesSourceOptions) {
   }
 
   function handleVisibilityOrFocus() {
-    if (!document.hidden) {
-      refresh(false).catch((error) => {
-        options.onStatus?.({
-          backendAvailable: false,
-          message: error instanceof Error ? error.message : "Backend unavailable",
-        });
-        console.error(error);
-      });
-    }
+    if (document.hidden) return;
+    void refresh(false);
   }
 
   function start() {
-    refresh(true).catch((error) => {
-      options.onStatus?.({
-        backendAvailable: false,
-        message: error instanceof Error ? error.message : "Backend unavailable",
-      });
-      console.error(error);
-    });
+    void refresh(true);
     startPolling();
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
     window.addEventListener("focus", handleVisibilityOrFocus);
