@@ -5,9 +5,9 @@ export const SOURCE_SETTINGS_STORAGE_KEY = "cookbook.sourceSettings.v1";
 
 // Stryker disable all: static default configuration literals are covered by integration behavior; literal mutations here are mostly noise.
 export const DEFAULT_SOURCE_SETTINGS: SourceSettings = {
-  mode: "github-public",
-  githubOwner: "davidsoff",
-  githubRepo: "Cookbook",
+  mode: "backend-api",
+  githubOwner: "",
+  githubRepo: "",
   githubRef: "main",
   recipesPath: "recipes/",
   aislePath: "config/aisle.conf",
@@ -19,7 +19,7 @@ export const DEFAULT_SOURCE_SETTINGS: SourceSettings = {
 function localDevSourceSettings(): SourceSettings {
   return {
     ...DEFAULT_SOURCE_SETTINGS,
-    mode: "local-http",
+    mode: "backend-api",
   };
 }
 

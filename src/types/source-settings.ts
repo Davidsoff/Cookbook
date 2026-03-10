@@ -1,4 +1,4 @@
-export type SourceMode = "local-http" | "github-public";
+export type SourceMode = "backend-api" | "local-http" | "github-public";
 
 export interface SourceSettings {
   mode: SourceMode;

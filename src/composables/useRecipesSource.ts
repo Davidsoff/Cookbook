@@ -4,7 +4,9 @@ import { adaptRawRecipeFile, adaptRawRecipeFiles } from "../lib/recipeAdapter";
 import { parseAisleConfig, parsePantryConfig } from "../lib/shopping";
 import type { ShoppingConfig } from "../types/shopping";
 import type { SourceSettings } from "../types/source-settings";
+import { fetchBackendConfig, fetchBackendHealth, fetchBackendRecipes } from "../lib/api";
 import { getDefaultSourceSettings, normalizeSourceSettings } from "../lib/sourceSettings";
+import type { BackendRecipeDto } from "../types/api";
 
 const DEFAULT_RECIPES_PATH = "recipes/";
 const POLL_INTERVAL_MS = 3000;
@@ -208,8 +210,9 @@ async function loadRecipesFromViteGlob(): Promise<Recipe[]> {
 }
 
 interface UseRecipesSourceOptions {
-  onData: (data: { recipes: Recipe[]; shoppingConfig: ShoppingConfig }) => void;
+  onData: (data: { recipes: Recipe[]; shoppingConfig: ShoppingConfig; sourceSettings?: SourceSettings }) => void;
   getSettings?: () => SourceSettings;
+  onStatus?: (status: { backendAvailable: boolean; message: string }) => void;
 }
 
 export function useRecipesSource(options: UseRecipesSourceOptions) {
@@ -273,8 +276,39 @@ export function useRecipesSource(options: UseRecipesSourceOptions) {
     };
   }
 
+  function adaptBackendRecipe(raw: BackendRecipeDto): Recipe {
+    return adaptRawRecipeFile({ path: raw.path, content: raw.content });
+  }
+
+  async function loadBackendData(): Promise<{ recipes: Recipe[]; shoppingConfig: ShoppingConfig; sourceSettings: SourceSettings }> {
+    await fetchBackendHealth();
+    const [config, recipesResponse] = await Promise.all([fetchBackendConfig(), fetchBackendRecipes()]);
+    const recipes = recipesResponse.recipes.map(adaptBackendRecipe).sort((a, b) => a.path.localeCompare(b.path));
+
+    return {
+      recipes,
+      shoppingConfig: config.shoppingConfig,
+      sourceSettings: normalizeSourceSettings(config.sourceSettings),
+    };
+  }
+
   async function refresh(force = false): Promise<void> {
     const settings = getSettings();
+
+    if (settings.mode === "backend-api") {
+      const { recipes, shoppingConfig, sourceSettings } = await loadBackendData();
+      const nextFingerprint = `${JSON.stringify(sourceSettings)}::${buildRecipesFingerprint(recipes)}::${buildShoppingConfigFingerprint(shoppingConfig)}`;
+
+      if (!force && nextFingerprint === fingerprint) {
+        options.onStatus?.({ backendAvailable: true, message: "" });
+        return;
+      }
+
+      fingerprint = nextFingerprint;
+      options.onStatus?.({ backendAvailable: true, message: "" });
+      options.onData({ recipes, shoppingConfig, sourceSettings });
+      return;
+    }
 
     let recipes: Recipe[] =
       settings.mode === "github-public"
@@ -300,13 +334,20 @@ export function useRecipesSource(options: UseRecipesSourceOptions) {
     }
 
     fingerprint = nextFingerprint;
+    options.onStatus?.({ backendAvailable: true, message: "" });
     options.onData({ recipes, shoppingConfig });
   }
 
   function startPolling() {
     stopPolling();
     pollId = window.setInterval(() => {
-      refresh(false).catch(console.error);
+      refresh(false).catch((error) => {
+        options.onStatus?.({
+          backendAvailable: false,
+          message: error instanceof Error ? error.message : "Backend unavailable",
+        });
+        console.error(error);
+      });
     }, POLL_INTERVAL_MS);
   }
 
@@ -319,12 +360,24 @@ export function useRecipesSource(options: UseRecipesSourceOptions) {
 
   function handleVisibilityOrFocus() {
     if (!document.hidden) {
-      refresh(false).catch(console.error);
+      refresh(false).catch((error) => {
+        options.onStatus?.({
+          backendAvailable: false,
+          message: error instanceof Error ? error.message : "Backend unavailable",
+        });
+        console.error(error);
+      });
     }
   }
 
   function start() {
-    refresh(true).catch(console.error);
+    refresh(true).catch((error) => {
+      options.onStatus?.({
+        backendAvailable: false,
+        message: error instanceof Error ? error.message : "Backend unavailable",
+      });
+      console.error(error);
+    });
     startPolling();
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
     window.addEventListener("focus", handleVisibilityOrFocus);

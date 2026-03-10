@@ -44,12 +44,16 @@ describe("meal plan store persistence", () => {
     const recipe = makeRecipe("recipes/a.cook", 3);
 
     const storeA = useCookbookStore();
+    storeA.setSourceSettings({ mode: "local-http" });
+    storeA.loadMealPlanFromStorage();
     storeA.applyRecipes([recipe]);
     const dayIso = storeA.mealPlanWeek.value.days[0].dateIso;
     storeA.setPlannedRecipe(dayIso, recipe.path);
     storeA.setPlannedServings(dayIso, 5);
 
     const storeB = useCookbookStore();
+    storeB.setSourceSettings({ mode: "local-http" });
+    storeB.loadMealPlanFromStorage();
     storeB.applyRecipes([recipe]);
     const reloaded = storeB.mealPlanWeek.value.days.find((day) => day.dateIso === dayIso);
 

@@ -68,8 +68,12 @@ export function useCookbookStore() {
     buildShoppingListFromPlan(plannedRecipesResolved.value, unitSystem.value, shoppingConfig.value),
   );
 
+  function isBackendMode() {
+    return sourceSettings.value.mode === "backend-api";
+  }
+
   function saveMealPlanToStorage() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || isBackendMode()) return;
     window.localStorage.setItem(MEAL_PLAN_STORAGE_KEY, JSON.stringify(mealPlanWeek.value));
   }
 
@@ -80,6 +84,11 @@ export function useCookbookStore() {
 
   function loadMealPlanFromStorage() {
     if (typeof window === "undefined") {
+      mealPlanWeek.value = createRollingWeek(new Date());
+      return;
+    }
+
+    if (isBackendMode()) {
       mealPlanWeek.value = createRollingWeek(new Date());
       return;
     }
@@ -151,6 +160,11 @@ export function useCookbookStore() {
     shoppingConfig.value = next;
   }
 
+  function replaceMealPlanWeek(next: MealPlanWeek) {
+    mealPlanWeek.value = rebaseMealPlanWeek(next, new Date());
+    saveMealPlanToStorage();
+  }
+
   function setPlannedRecipe(dateIso: string, recipePath: string | null) {
     const recipe = recipePath ? recipes.value.find((item) => item.path === recipePath) : null;
     mealPlanWeek.value = {
@@ -194,6 +208,9 @@ export function useCookbookStore() {
     sourceSettings.value = merged;
     unitSystem.value = merged.defaultUnitSystem;
     saveSourceSettingsToStorage(merged);
+    if (isBackendMode()) {
+      mealPlanWeek.value = createRollingWeek(new Date());
+    }
   }
 
   function resetSourceSettings() {
@@ -249,6 +266,12 @@ export function useCookbookStore() {
     saveSourceSettingsToStorage(sourceSettings.value);
   }
 
+  function hydrateSourceSettings(next: SourceSettings) {
+    sourceSettings.value = normalizeSourceSettings(next);
+    unitSystem.value = sourceSettings.value.defaultUnitSystem;
+    saveSourceSettingsToStorage(sourceSettings.value);
+  }
+
   sourceSettings.value = loadSourceSettingsFromStorage();
   unitSystem.value = sourceSettings.value.defaultUnitSystem;
   loadMealPlanFromStorage();
@@ -275,6 +298,7 @@ export function useCookbookStore() {
     planShoppingCategories,
     applyRecipes,
     setShoppingConfig,
+    replaceMealPlanWeek,
     initializeMealPlanWeek,
     setPlannedRecipe,
     setPlannedServings,
@@ -283,6 +307,7 @@ export function useCookbookStore() {
     loadMealPlanFromStorage,
     saveMealPlanToStorage,
     setSourceSettings,
+    hydrateSourceSettings,
     resetSourceSettings,
     selectRecipe,
     toggleFolder,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, provide, reactive, watch } from "vue";
+import { computed, onMounted, onUnmounted, provide, reactive, ref, watch } from "vue";
 import TopBar from "./components/TopBar.vue";
 import RecipeTree from "./components/RecipeTree.vue";
 import RecipeHero from "./components/RecipeHero.vue";
@@ -14,14 +14,24 @@ import { useCookbookStore } from "./stores/useCookbookStore";
 import { useRecipesSource } from "./composables/useRecipesSource";
 import { cookbookUiContextKey } from "./lib/cookbookUiContext";
 import type { SourceSettings } from "./types/source-settings";
+import { fetchBackendMealPlan, saveBackendConfig, saveBackendMealPlan } from "./lib/api";
 
 const store = reactive(useCookbookStore());
+const backendAvailable = ref(true);
+const backendMessage = ref("");
 
 const source = useRecipesSource({
   getSettings: () => store.sourceSettings,
-  onData: ({ recipes, shoppingConfig }) => {
+  onData: ({ recipes, shoppingConfig, sourceSettings }) => {
+    if (sourceSettings) {
+      store.hydrateSourceSettings(sourceSettings);
+    }
     store.applyRecipes(recipes);
     store.setShoppingConfig(shoppingConfig);
+  },
+  onStatus: ({ backendAvailable: nextAvailable, message }) => {
+    backendAvailable.value = nextAvailable;
+    backendMessage.value = message;
   },
 });
 
@@ -32,6 +42,11 @@ const sourceSummary = computed(() => {
     const repo = store.sourceSettings.githubRepo || "<repo>";
     const ref = store.sourceSettings.githubRef || "main";
     return `Loading recipes and shopping config from GitHub: ${owner}/${repo}@${ref}.`;
+  }
+  if (store.sourceSettings.mode === "backend-api") {
+    return backendAvailable.value
+      ? "Loading recipes and shared meal plan from the Phoenix backend."
+      : `Phoenix backend unavailable: ${backendMessage.value || "request failed"}.`;
   }
   return "Loading recipes and shopping config from local HTTP files.";
 });
@@ -48,6 +63,9 @@ provide(cookbookUiContextKey, {
 
 onMounted(() => {
   source.start();
+  if (store.sourceSettings.mode === "backend-api") {
+    refreshBackendMealPlan();
+  }
 });
 
 onUnmounted(() => {
@@ -59,17 +77,93 @@ watch(
   () => JSON.stringify(store.sourceSettings),
   () => {
     source.refresh(true).catch(console.error);
+    if (store.sourceSettings.mode === "backend-api") {
+      refreshBackendMealPlan();
+    }
   },
 );
 
-function saveSettings(next: SourceSettings) {
+async function refreshBackendMealPlan() {
+  try {
+    const mealPlan = await fetchBackendMealPlan();
+    store.replaceMealPlanWeek(mealPlan);
+    backendAvailable.value = true;
+    backendMessage.value = "";
+  } catch (error) {
+    backendAvailable.value = false;
+    backendMessage.value = error instanceof Error ? error.message : "Backend unavailable";
+  }
+}
+
+async function persistMealPlan() {
+  if (store.sourceSettings.mode !== "backend-api") return;
+
+  try {
+    const saved = await saveBackendMealPlan(store.mealPlanWeek);
+    store.replaceMealPlanWeek(saved);
+    backendAvailable.value = true;
+    backendMessage.value = "";
+  } catch (error) {
+    backendAvailable.value = false;
+    backendMessage.value = error instanceof Error ? error.message : "Backend unavailable";
+    await refreshBackendMealPlan();
+  }
+}
+
+async function saveSettings(next: SourceSettings) {
+  if (next.mode === "backend-api") {
+    try {
+      const saved = await saveBackendConfig(next);
+      store.hydrateSourceSettings(saved.sourceSettings);
+      store.setShoppingConfig(saved.shoppingConfig);
+      backendAvailable.value = true;
+      backendMessage.value = "";
+      await source.refresh(true);
+      await refreshBackendMealPlan();
+    } catch (error) {
+      backendAvailable.value = false;
+      backendMessage.value = error instanceof Error ? error.message : "Backend unavailable";
+    }
+    return;
+  }
+
   store.setSourceSettings(next);
+  store.loadMealPlanFromStorage();
+}
+
+async function resetSettings() {
+  store.resetSourceSettings();
+  store.loadMealPlanFromStorage();
+  await source.refresh(true);
+}
+
+async function setPlannedRecipe(dateIso: string, recipePath: string | null) {
+  store.setPlannedRecipe(dateIso, recipePath);
+  await persistMealPlan();
+}
+
+async function setPlannedServings(dateIso: string, servings: number) {
+  store.setPlannedServings(dateIso, servings);
+  await persistMealPlan();
+}
+
+async function generateRandomWeek(opts: { overwriteFilled: boolean }) {
+  store.generateRandomWeek(opts);
+  await persistMealPlan();
+}
+
+async function clearMealPlanWeek() {
+  store.clearMealPlanWeek();
+  await persistMealPlan();
 }
 </script>
 
 <template>
   <div class="app">
     <TopBar :source-summary="sourceSummary" />
+    <div v-if="store.sourceSettings.mode === 'backend-api' && !backendAvailable" class="empty backend-status">
+      Shared backend unavailable. Reads and writes will not sync until `/api` responds again.
+    </div>
 
     <main class="layout">
       <aside class="recipe-list">
@@ -92,10 +186,7 @@ function saveSettings(next: SourceSettings) {
           <SettingsPanel
             :settings="store.sourceSettings"
             @save="saveSettings"
-            @reset="
-              store.resetSourceSettings();
-              source.refresh(true);
-            "
+            @reset="resetSettings"
           />
         </div>
 
@@ -131,10 +222,10 @@ function saveSettings(next: SourceSettings) {
             v-else-if="store.tab === 'meal-plan'"
             :week="store.mealPlanWeek"
             :recipes="store.recipes"
-            @set-recipe="store.setPlannedRecipe($event.dateIso, $event.recipePath)"
-            @set-servings="store.setPlannedServings($event.dateIso, $event.servings)"
-            @generate-random="store.generateRandomWeek($event)"
-            @clear-week="store.clearMealPlanWeek()"
+            @set-recipe="setPlannedRecipe($event.dateIso, $event.recipePath)"
+            @set-servings="setPlannedServings($event.dateIso, $event.servings)"
+            @generate-random="generateRandomWeek($event)"
+            @clear-week="clearMealPlanWeek()"
           />
           <PlanShoppingPanel v-else :categories="store.planShoppingCategories" />
         </div>

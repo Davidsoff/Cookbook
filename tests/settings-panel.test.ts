@@ -33,7 +33,7 @@ describe("SettingsPanel", () => {
     const wrapper = mount(SettingsPanel, { props: { settings: baseSettings } });
 
     const modeButtons = wrapper.findAll(".segmented-control button");
-    await modeButtons[1].trigger("click");
+    await modeButtons[2].trigger("click");
 
     expect(wrapper.text()).toContain("GitHub Owner");
     expect(wrapper.text()).toContain("GitHub Repository");

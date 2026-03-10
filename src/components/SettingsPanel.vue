@@ -39,6 +39,9 @@ function setMode(mode: SourceMode) {
       <label>
         <span>Source Mode</span>
         <div class="segmented-control">
+          <button class="unit-segment" :class="{ active: form.mode === 'backend-api' }" type="button" @click="setMode('backend-api')">
+            Shared Backend
+          </button>
           <button class="unit-segment" :class="{ active: form.mode === 'local-http' }" type="button" @click="setMode('local-http')">
             Local HTTP
           </button>
@@ -93,6 +96,10 @@ function setMode(mode: SourceMode) {
         </label>
       </template>
     </div>
+
+    <p v-if="form.mode === 'backend-api'" class="settings-help">
+      Shared backend mode stores settings and meal plans in Phoenix/SQLite and loads recipes from files on the backend host.
+    </p>
 
     <div class="settings-actions">
       <button type="button" @click="submit">Save Settings</button>

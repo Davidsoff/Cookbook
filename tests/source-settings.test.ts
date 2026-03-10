@@ -50,22 +50,22 @@ describe("source settings", () => {
     expect(normalized.defaultUnitSystem).toBe("us");
   });
 
-  it("defaults to github source davidsoff/Cookbook", () => {
-    expect(DEFAULT_SOURCE_SETTINGS.mode).toBe("github-public");
-    expect(DEFAULT_SOURCE_SETTINGS.githubOwner).toBe("davidsoff");
-    expect(DEFAULT_SOURCE_SETTINGS.githubRepo).toBe("Cookbook");
+  it("defaults to shared backend mode", () => {
+    expect(DEFAULT_SOURCE_SETTINGS.mode).toBe("backend-api");
+    expect(DEFAULT_SOURCE_SETTINGS.githubOwner).toBe("");
+    expect(DEFAULT_SOURCE_SETTINGS.githubRepo).toBe("");
     expect(DEFAULT_SOURCE_SETTINGS.githubRef).toBe("main");
   });
 
-  it("uses local-http as runtime default in dev", () => {
-    expect(getDefaultSourceSettings(true).mode).toBe("local-http");
-    expect(getDefaultSourceSettings(false).mode).toBe("github-public");
+  it("uses backend-api as the runtime default", () => {
+    expect(getDefaultSourceSettings(true).mode).toBe("backend-api");
+    expect(getDefaultSourceSettings(false).mode).toBe("backend-api");
   });
 
   it("loads defaults on invalid stored payload", () => {
     window.localStorage.setItem(SOURCE_SETTINGS_STORAGE_KEY, "{broken");
     expect(loadSourceSettingsFromStorage(false)).toEqual(DEFAULT_SOURCE_SETTINGS);
-    expect(loadSourceSettingsFromStorage(true).mode).toBe("local-http");
+    expect(loadSourceSettingsFromStorage(true).mode).toBe("backend-api");
   });
 
   it("saves and loads normalized settings", () => {
