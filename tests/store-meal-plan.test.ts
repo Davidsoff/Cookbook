@@ -60,4 +60,23 @@ describe("meal plan store persistence", () => {
     expect(reloaded?.recipePath).toBe(recipe.path);
     expect(reloaded?.servings).toBe(5);
   });
+
+  it("keeps a local unit override when backend source settings are hydrated", () => {
+    const store = useCookbookStore();
+
+    store.setUnitSystem("us");
+    store.hydrateSourceSettings({
+      mode: "backend-api",
+      githubOwner: "",
+      githubRepo: "",
+      githubRef: "main",
+      recipesPath: "recipes/",
+      aislePath: "config/aisle.conf",
+      pantryPath: "config/pantry.conf",
+      defaultUnitSystem: "metric",
+    });
+
+    expect(store.unitSystem.value).toBe("us");
+    expect(store.sourceSettings.value.defaultUnitSystem).toBe("metric");
+  });
 });

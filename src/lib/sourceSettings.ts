@@ -2,6 +2,7 @@ import type { SourceSettings } from "../types/source-settings";
 
 // Stryker disable next-line StringLiteral: storage key renames are config migrations, not useful mutation signal.
 export const SOURCE_SETTINGS_STORAGE_KEY = "cookbook.sourceSettings.v1";
+export const UNIT_SYSTEM_OVERRIDE_STORAGE_KEY = "cookbook.unitSystemOverride.v1";
 
 // Stryker disable all: static default configuration literals are covered by integration behavior; literal mutations here are mostly noise.
 export const DEFAULT_SOURCE_SETTINGS: SourceSettings = {
@@ -78,4 +79,21 @@ export function saveSourceSettingsToStorage(settings: SourceSettings) {
   // Stryker disable next-line ConditionalExpression,StringLiteral: server runtime guard only.
   if (typeof window === "undefined") return;
   window.localStorage.setItem(SOURCE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+export function loadUnitSystemOverrideFromStorage(): SourceSettings["defaultUnitSystem"] | null {
+  if (typeof window === "undefined") return null;
+
+  const raw = window.localStorage.getItem(UNIT_SYSTEM_OVERRIDE_STORAGE_KEY);
+  return raw === "us" ? "us" : raw === "metric" ? "metric" : null;
+}
+
+export function saveUnitSystemOverrideToStorage(unitSystem: SourceSettings["defaultUnitSystem"]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(UNIT_SYSTEM_OVERRIDE_STORAGE_KEY, unitSystem);
+}
+
+export function clearUnitSystemOverrideFromStorage() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(UNIT_SYSTEM_OVERRIDE_STORAGE_KEY);
 }

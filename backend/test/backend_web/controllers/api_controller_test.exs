@@ -47,6 +47,8 @@ defmodule BackendWeb.ApiControllerTest do
   end
 
   test "recipe and meal plan endpoints return json", %{conn: conn} do
+    today_iso = Date.utc_today() |> Date.to_iso8601()
+
     conn = get(conn, ~p"/api/recipes")
     response = json_response(conn, 200)
     [recipe | _] = response["recipes"]
@@ -54,7 +56,7 @@ defmodule BackendWeb.ApiControllerTest do
 
     conn =
       put(conn, ~p"/api/meal-plan", %{
-        days: [%{dateIso: "2026-03-09", recipePath: "recipes/toast.cook", servings: 2}]
+        days: [%{dateIso: today_iso, recipePath: "recipes/toast.cook", servings: 2}]
       })
 
     assert Enum.any?(

@@ -59,12 +59,14 @@ describe("useRecipesSource github", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const onData = vi.fn();
+    const onStatus = vi.fn();
     const source = useRecipesSource({
       getSettings: () => githubSettings,
       onData,
+      onStatus,
     });
 
-    await source.refresh(true);
+    const result = await source.refresh(true);
 
     expect(onData).toHaveBeenCalledTimes(1);
     const payload = onData.mock.calls[0][0];
@@ -74,5 +76,52 @@ describe("useRecipesSource github", () => {
     ]);
     expect(payload.shoppingConfig.aisleByIngredient.mint).toBe("Herbs");
     expect(payload.shoppingConfig.pantryByIngredient.salt.amount).toBe(5);
+    expect(payload.sourceSettings).toEqual(githubSettings);
+    expect(result.snapshot?.sourceSettings).toEqual(githubSettings);
+    expect(result.updated).toBe(true);
+    expect(result.error).toBeNull();
+    expect(onStatus).toHaveBeenLastCalledWith({ backendAvailable: true, message: "" });
+  });
+
+  it("reports a failed refresh when a github recipe listed in the tree cannot be loaded", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/git/trees/")) {
+        return new Response(
+          JSON.stringify({
+            tree: [{ path: "recipes/a.cook", type: "blob" }],
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (url.endsWith("/recipes/a.cook")) {
+        return new Response("", { status: 503 });
+      }
+
+      return new Response("", { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onData = vi.fn();
+    const onStatus = vi.fn();
+    const source = useRecipesSource({
+      getSettings: () => githubSettings,
+      onData,
+      onStatus,
+    });
+
+    const result = await source.refresh(true);
+
+    expect(onData).not.toHaveBeenCalled();
+    expect(result.snapshot).toBeNull();
+    expect(result.updated).toBe(false);
+    expect(result.error?.message).toContain("GitHub recipe file returned 503");
+    expect(onStatus).toHaveBeenLastCalledWith({
+      backendAvailable: false,
+      message: expect.stringContaining("GitHub recipe file returned 503"),
+    });
   });
 });

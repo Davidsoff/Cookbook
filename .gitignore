@@ -8,3 +8,18 @@ reports/mutation/
 !reports/stryker-incremental.json
 .codex/
 stryker.log
+.venv-desloppify/
+.desloppify/
+.agents/skills/desloppify/
+backend/.local/
+backend/.sobelow/
+scorecard.png
+
+# >>> repo-init >>>
+.direnv/
+.venv/
+.npm-global/
+.npm-cache/
+.pip-cache/
+.uv-cache/
+# <<< repo-init <<<
