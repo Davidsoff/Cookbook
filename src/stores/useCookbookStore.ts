@@ -19,6 +19,7 @@ import {
   setMealPlanServings,
 } from "./cookbookMealPlan";
 import {
+  clearPersistedUnitSystemOverride,
   loadPersistedSourceSettingsState,
   mergeSourceSettings,
   persistMergedSourceSettings,
@@ -222,6 +223,12 @@ export function useCookbookStore() {
     sourceSettings.value = nextState.sourceSettings;
   }
 
+  function resetUnitSystemOverride() {
+    const nextState = clearPersistedUnitSystemOverride(sourceSettings.value);
+    unitSystem.value = nextState.unitSystem;
+    sourceSettings.value = nextState.sourceSettings;
+  }
+
   function hydrateSourceSettings(next: SourceSettings) {
     const nextState = persistSourceSettings(next);
     sourceSettings.value = nextState.sourceSettings;
@@ -271,6 +278,7 @@ export function useCookbookStore() {
     scaleUp,
     scaleReset,
     setUnitSystem,
+    resetUnitSystemOverride,
     toggleTimer: timers.toggleTimer,
     addTimeToTimer: timers.addTimeToTimer,
     createCustomTimer: timers.createCustomTimer,

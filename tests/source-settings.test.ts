@@ -1,12 +1,16 @@
 /** @vitest-environment jsdom */
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearUnitSystemOverrideFromStorage,
   DEFAULT_SOURCE_SETTINGS,
   SOURCE_SETTINGS_STORAGE_KEY,
+  UNIT_SYSTEM_OVERRIDE_STORAGE_KEY,
   getDefaultSourceSettings,
   loadSourceSettingsFromStorage,
+  loadUnitSystemOverrideFromStorage,
   normalizeSourceSettings,
   saveSourceSettingsToStorage,
+  saveUnitSystemOverrideToStorage,
 } from "../src/lib/sourceSettings";
 
 describe("source settings", () => {
@@ -112,5 +116,17 @@ describe("source settings", () => {
     expect(loaded.aislePath).toBe("configs/aisle.conf");
     expect(loaded.pantryPath).toBe("configs/pantry.conf");
     expect(loaded.defaultUnitSystem).toBe("metric");
+  });
+
+  it("stores the local unit-system override separately from shared source settings", () => {
+    expect(loadUnitSystemOverrideFromStorage()).toBeNull();
+
+    saveUnitSystemOverrideToStorage("us");
+
+    expect(window.localStorage.getItem(UNIT_SYSTEM_OVERRIDE_STORAGE_KEY)).toBe("us");
+    expect(loadUnitSystemOverrideFromStorage()).toBe("us");
+
+    clearUnitSystemOverrideFromStorage();
+    expect(loadUnitSystemOverrideFromStorage()).toBeNull();
   });
 });

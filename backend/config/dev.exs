@@ -22,9 +22,16 @@ config :backend, BackendWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "Y2g+Df2Y5SlQMKsIelKLHM+wAA3sYQ9TE0BwGDE3BgQo1ziK0sds2/Y/1BYVqab6",
   watchers: [
-    npm:
-      {"npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5173"],
-       cd: Path.expand("../..", __DIR__)}
+    npm: [
+      "run",
+      "dev",
+      "--",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "5173",
+      cd: Path.expand("../..", __DIR__)
+    ]
   ]
 
 # ## SSL Support

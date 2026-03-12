@@ -6,6 +6,30 @@ interface UseTimersOptions {
   getActiveRecipe: () => Recipe | null;
 }
 
+type RecipeTimer = Recipe["parsed"]["steps"][number]["timers"][number];
+
+function clearTimerTimeout(timer: RunningTimer | undefined) {
+  if (!timer) return;
+  window.clearTimeout(timer.timeoutId);
+}
+
+function formatTimerLabel(timer: RecipeTimer): string {
+  return timer.displayQuantity ? `${timer.label} (${timer.displayQuantity})` : timer.label;
+}
+
+function findRecipeTimer(recipe: Recipe | null, timerId: string): RecipeTimer | null {
+  if (!recipe || !timerId) return null;
+
+  for (const step of recipe.parsed.steps) {
+    const timer = step.timers.find((item) => item.id === timerId);
+    if (timer) {
+      return timer;
+    }
+  }
+
+  return null;
+}
+
 export function useTimers(options: UseTimersOptions) {
   const runningTimers = reactive<Record<string, RunningTimer>>({});
   const nowTick = ref(Date.now());
@@ -30,7 +54,7 @@ export function useTimers(options: UseTimersOptions) {
   function stopTimer(timerId: string) {
     const timer = runningTimers[timerId];
     if (!timer) return;
-    window.clearTimeout(timer.timeoutId);
+    clearTimerTimeout(timer);
     delete runningTimers[timerId];
     clearTickerIfIdle();
   }
@@ -42,7 +66,7 @@ export function useTimers(options: UseTimersOptions) {
   function scheduleCompletion(timerId: string) {
     const timer = runningTimers[timerId];
     if (!timer) return;
-    window.clearTimeout(timer.timeoutId);
+    clearTimerTimeout(timer);
 
     const remainingMs = Math.max(0, timer.endsAt - Date.now());
     timer.timeoutId = window.setTimeout(() => {
@@ -76,26 +100,14 @@ export function useTimers(options: UseTimersOptions) {
   }
 
   function toggleTimer(timerId: string) {
-    const recipe = options.getActiveRecipe();
-    if (!recipe || !timerId) return;
-
     if (runningTimers[timerId]) {
       stopTimer(timerId);
       return;
     }
 
-    let def: Recipe["parsed"]["steps"][number]["timers"][number] | null = null;
-    for (const step of recipe.parsed.steps) {
-      const found = step.timers.find((timer) => timer.id === timerId);
-      if (found) {
-        def = found;
-        break;
-      }
-    }
-
-    if (!def || !def.seconds) return;
-
-    startTimer(timerId, def.displayQuantity ? `${def.label} (${def.displayQuantity})` : def.label, def.seconds);
+    const timer = findRecipeTimer(options.getActiveRecipe(), timerId);
+    if (!timer?.seconds) return;
+    startTimer(timerId, formatTimerLabel(timer), timer.seconds);
   }
 
   function addTimeToTimer(timerId: string, extraSeconds: number) {

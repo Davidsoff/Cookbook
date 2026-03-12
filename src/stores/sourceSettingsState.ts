@@ -1,8 +1,11 @@
 import {
+  clearUnitSystemOverrideFromStorage,
   getDefaultSourceSettings,
   loadSourceSettingsFromStorage,
+  loadUnitSystemOverrideFromStorage,
   normalizeSourceSettings,
   saveSourceSettingsToStorage,
+  saveUnitSystemOverrideToStorage,
 } from "../lib/sourceSettings";
 import type { UnitSystem } from "../types/recipe";
 import type { SourceSettings } from "../types/source-settings";
@@ -14,9 +17,11 @@ export interface SourceSettingsState {
 
 export function loadPersistedSourceSettingsState(): SourceSettingsState {
   const sourceSettings = loadSourceSettingsFromStorage();
+  const unitSystemOverride = loadUnitSystemOverrideFromStorage();
+
   return {
     sourceSettings,
-    unitSystem: sourceSettings.defaultUnitSystem,
+    unitSystem: unitSystemOverride ?? sourceSettings.defaultUnitSystem,
   };
 }
 
@@ -26,10 +31,11 @@ export function mergeSourceSettings(current: SourceSettings, next: Partial<Sourc
 
 export function persistSourceSettings(next: SourceSettings): SourceSettingsState {
   const sourceSettings = normalizeSourceSettings(next);
+  const unitSystemOverride = loadUnitSystemOverrideFromStorage();
   saveSourceSettingsToStorage(sourceSettings);
   return {
     sourceSettings,
-    unitSystem: sourceSettings.defaultUnitSystem,
+    unitSystem: unitSystemOverride ?? sourceSettings.defaultUnitSystem,
   };
 }
 
@@ -48,8 +54,17 @@ export function persistUnitSystem(
   current: SourceSettings,
   unitSystem: UnitSystem,
 ): SourceSettingsState {
-  return persistSourceSettings({
-    ...current,
-    defaultUnitSystem: unitSystem,
-  });
+  saveUnitSystemOverrideToStorage(unitSystem);
+  return {
+    sourceSettings: current,
+    unitSystem,
+  };
+}
+
+export function clearPersistedUnitSystemOverride(current: SourceSettings): SourceSettingsState {
+  clearUnitSystemOverrideFromStorage();
+  return {
+    sourceSettings: current,
+    unitSystem: current.defaultUnitSystem,
+  };
 }
